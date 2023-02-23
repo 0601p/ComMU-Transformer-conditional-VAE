@@ -21,6 +21,7 @@ from torch.nn import Embedding
 from torch.nn import CrossEntropyLoss
 from torch.nn.modules.activation import MultiheadAttention
 from torch.nn.modules.dropout import Dropout
+from torch.nn.modules.transformer import Transformer
 
 
 # This model is from torch github https://github.com/pytorch/pytorch/blob/master/torch/nn/modules/transformer.py
@@ -637,7 +638,6 @@ class T5TransformerDecoderLayer(Module):
         x = self.self_attn(x, x, x,
                            attn_mask=mask_bias,
                            key_padding_mask=key_padding_mask,
-                           is_causal=is_causal,
                            need_weights=False)[0]
         return self.dropout1(x)
 
@@ -648,7 +648,6 @@ class T5TransformerDecoderLayer(Module):
         x = self.multihead_attn(x, mem, mem,
                                 attn_mask=mask_bias,
                                 key_padding_mask=key_padding_mask,
-                                is_causal=is_causal,
                                 need_weights=False)[0]
         return self.dropout2(x)
 
