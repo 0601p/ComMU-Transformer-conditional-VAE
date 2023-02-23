@@ -101,7 +101,7 @@ class Transformer_CVAE(Module):
         self.local_encoder = Linear(d_model, d_model, **factory_kwargs)
         self.local_decoder = Linear(d_model, vocab_size, **factory_kwargs)
         self.condition_embed = TokenEmbedding(d_latent, vocab_size=vocab_size, **factory_kwargs)
-        self.src_tgt_embed = TransformerEmbedding(d_model, vocab_size, seq_len, batch_first=batch_first, **factory_kwargs)
+        self.src_tgt_embed = TokenEmbedding(d_model, vocab_size=vocab_size, **factory_kwargs)
         self.criterion = VAE_Loss(beta=beta, pad_idx=pad_idx) # beta = 1 from Transformer VAE paper, pad_idx from ComMU dataset
 
     def forward_(self, src: Tensor, tgt: Tensor, cdt: Tensor, src_mask: Optional[Tensor] = None, tgt_mask: Optional[Tensor] = None,
@@ -761,27 +761,27 @@ class TokenEmbedding(Module):
         return self.embedding(x) * math.sqrt(self.d_model)
 
 
-class PositionalEncoding(Module):
-    def __init__(self, d_model, max_len, batch_first: bool = False, device=None, dtype=None) -> None:
-        factory_kwargs = {'device': device, 'dtype': dtype}
-        super(PositionalEncoding, self).__init__()
+# class PositionalEncoding(Module):
+#     def __init__(self, d_model, max_len, batch_first: bool = False, device=None, dtype=None) -> None:
+#         factory_kwargs = {'device': device, 'dtype': dtype}
+#         super(PositionalEncoding, self).__init__()
 
-        self.batch_first = batch_first
-        encoding = torch.zeros(max_len, d_model)
-        encoding.requires_grad = False
-        position = torch.arange(0, max_len).float().unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) * -(math.log(10000.0) / d_model))
-        encoding[:, 0::2] = torch.sin(position * div_term)
-        encoding[:, 1::2] = torch.cos(position * div_term)
-        if batch_first:
-            self.encoding = encoding.unsqueeze(0).to(device)
-        else:
-            self.encoding = encoding.unsqueeze(1).to(device)
+#         self.batch_first = batch_first
+#         encoding = torch.zeros(max_len, d_model)
+#         encoding.requires_grad = False
+#         position = torch.arange(0, max_len).float().unsqueeze(1)
+#         div_term = torch.exp(torch.arange(0, d_model, 2) * -(math.log(10000.0) / d_model))
+#         encoding[:, 0::2] = torch.sin(position * div_term)
+#         encoding[:, 1::2] = torch.cos(position * div_term)
+#         if batch_first:
+#             self.encoding = encoding.unsqueeze(0).to(device)
+#         else:
+#             self.encoding = encoding.unsqueeze(1).to(device)
     
-    # input size : 
-    # (batch_size, seq_length, d_model) if batch_first is True
-    # (seq_length, batch_size, d_model) if batch_first is False
-    def forward(self, x) -> Tensor:
+#     # input size : 
+#     # (batch_size, seq_length, d_model) if batch_first is True
+#     # (seq_length, batch_size, d_model) if batch_first is False
+#     def forward(self, x) -> Tensor:
         if self.batch_first : # input size : (batch_size, seq_length, d_model)
             seq_len = x.size(1)
             pos_embed = self.encoding[:, :seq_len, :]
