@@ -665,12 +665,13 @@ class T5TransformerDecoderLayer(Module):
             relative_buckets += (relative_position > 0).to(torch.long) * num_buckets
             relative_position = torch.abs(relative_position)
         else:
-            relative_position = torch.min(relative_position, torch.zeros_like(relative_position))
+            relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
         
         q_len = relative_position.size(0)
         k_len = relative_position.size(1)
         if q_len != k_len:
-            relative_position[:, q_len:] = torch.arange(q_len, k_len).repeat(q_len, 1) + num_buckets
+            relative_position[:, k_len - q_len:] = relative_position[:, :q_len]
+            relative_position[:, :k_len - q_len] = torch.arange(0, k_len - q_len, dtype=torch.long, device=self.device)[None, :].repeat(q_len, 1) + num_buckets
         return relative_position
 
     def compute_bias(self,batch_size, query_length, key_length, relative_attention_bias):
