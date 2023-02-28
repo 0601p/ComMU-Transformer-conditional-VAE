@@ -8,7 +8,7 @@ def model(cfg):
     cfg.MODEL.num_heads = 10
     cfg.MODEL.units = 500
     cfg.MODEL.inner_size = 1000
-    cfg.MODEL.latent_dim = 8
+    cfg.MODEL.latent_dim = 160
     cfg.MODEL.dropout = 0.1
     cfg.MODEL.attention_dropout = 0.1 # Do not use this
     cfg.MODEL.layer_norm_eps = 1e-5

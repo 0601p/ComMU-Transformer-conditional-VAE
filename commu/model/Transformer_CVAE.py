@@ -79,9 +79,9 @@ class Transformer_CVAE(Module):
         encoder_norm = LayerNorm(d_model, eps=layer_norm_eps, **factory_kwargs)
         self.encoder = TransformerEncoder(encoder_layer, num_encoder_layers, encoder_norm)
 
-        self.sample_layer = VAEsample(d_model, d_latent, batch_first, **factory_kwargs)
+        self.sample_layer = VAEsample(d_model, d_latent, batch_first, nhead, **factory_kwargs)
 
-        decoder_layer = T5TransformerDecoderLayer(d_model, nhead, num_buckets, dim_feedforward, dropout,
+        decoder_layer = T5TransformerDecoderLayer(d_model,  cdt_len, nhead, num_buckets, dim_feedforward, dropout,
                                                 activation, layer_norm_eps, batch_first, norm_first,
                                                 **factory_kwargs)
         decoder_norm = LayerNorm(d_model, eps=layer_norm_eps, **factory_kwargs)
@@ -211,8 +211,8 @@ class Transformer_CVAE(Module):
         cdt_embed = self.condition_embed(cdt)
 
         input_embed = self.local_encoder(input_embed)
-        out = torch.concat((cdt_embed, latent), dim = 1 if self.batch_first else 0)
-        out = self.sample_layer.latent2model(out)
+
+        out = self.sample_layer(latent, cdt_embed)
         output = self.decoder(input_embed, out, tgt_mask=src_tgt_mask, memory_mask=cross_attention_mask,
                               tgt_key_padding_mask=tgt_key_padding_mask,
                               memory_key_padding_mask=memory_key_padding_mask)
@@ -552,7 +552,7 @@ class T5TransformerDecoderLayer(Module):
     """
     __constants__ = ['batch_first', 'norm_first']
 
-    def __init__(self, d_model: int, nhead: int, num_buckets: int, dim_feedforward: int = 2048, dropout: float = 0.1,
+    def __init__(self, d_model: int, meta_len: int, nhead: int, num_buckets: int, dim_feedforward: int = 2048, dropout: float = 0.1,
                  activation: Union[str, Callable[[Tensor], Tensor]] = F.relu,
                  layer_norm_eps: float = 1e-5, batch_first: bool = False, norm_first: bool = False,
                  device=None, dtype=None) -> None:
@@ -567,18 +567,22 @@ class T5TransformerDecoderLayer(Module):
         self.dropout = Dropout(dropout)
         self.linear2 = Linear(dim_feedforward, d_model, **factory_kwargs)
 
+        self.latent_linear1 = Linear(d_model * meta_len, dim_feedforward, **factory_kwargs)
+        self.latent_dropout = Dropout(dropout)
+        self.latent_linear2 = Linear(dim_feedforward, d_model, **factory_kwargs)
+        self.latent_dropout2 = Dropout(dropout)
+
+        self.batch_first = batch_first
         self.norm_first = norm_first
         self.norm1 = LayerNorm(d_model, eps=layer_norm_eps, **factory_kwargs)
         self.norm2 = LayerNorm(d_model, eps=layer_norm_eps, **factory_kwargs)
-        self.norm3 = LayerNorm(d_model, eps=layer_norm_eps, **factory_kwargs)
+        self.latent_norm = LayerNorm(d_model, eps=layer_norm_eps, **factory_kwargs)
         self.dropout1 = Dropout(dropout)
         self.dropout2 = Dropout(dropout)
-        self.dropout3 = Dropout(dropout)
         self.device = device
 
         self.relative_attention_num_buckets = num_buckets
         self.relative_attention_bias_sa = Embedding(self.relative_attention_num_buckets, nhead, **factory_kwargs)
-        self.relative_attention_bias_mha = Embedding(self.relative_attention_num_buckets, nhead, **factory_kwargs)
 
         # Legacy string support for activation function.
         if isinstance(activation, str):
@@ -621,13 +625,13 @@ class T5TransformerDecoderLayer(Module):
 
         x = tgt
         if self.norm_first:
+            x = x + self._latent_ff_block(self.latent_norm(memory))
             x = x + self._sa_block(self.norm1(x), tgt_mask, tgt_key_padding_mask, tgt_is_causal)
-            x = x + self._mha_block(self.norm2(x), memory, memory_mask, memory_key_padding_mask, memory_is_causal)
-            x = x + self._ff_block(self.norm3(x))
+            x = x + self._ff_block(self.norm2(x))
         else:
+            x = self.latent_norm(x + self._latent_ff_block(memory))
             x = self.norm1(x + self._sa_block(x, tgt_mask, tgt_key_padding_mask, tgt_is_causal))
-            x = self.norm2(x + self._mha_block(x, memory, memory_mask, memory_key_padding_mask, memory_is_causal))
-            x = self.norm3(x + self._ff_block(x))
+            x = self.norm2(x + self._ff_block(x))
 
         return x
 
@@ -641,20 +645,20 @@ class T5TransformerDecoderLayer(Module):
                            need_weights=False)[0]
         return self.dropout1(x)
 
-    # multihead attention block
-    def _mha_block(self, x: Tensor, mem: Tensor,
-                   attn_mask: Optional[Tensor], key_padding_mask: Optional[Tensor], is_causal: bool = False) -> Tensor:
-        mask_bias = attn_mask + self.compute_bias(x.size(1), x.size(0), mem.size(0), self.relative_attention_bias_mha)
-        x = self.multihead_attn(x, mem, mem,
-                                attn_mask=mask_bias,
-                                key_padding_mask=key_padding_mask,
-                                need_weights=False)[0]
-        return self.dropout2(x)
-
     # feed forward block
     def _ff_block(self, x: Tensor) -> Tensor:
         x = self.linear2(self.dropout(self.activation(self.linear1(x))))
-        return self.dropout3(x)
+        return self.dropout2(x)
+
+    def _latent_ff_block(self, x: Tensor) -> Tensor:
+        if not self.batch_first:
+            x = x.permute(1, 0, 2)
+        batch_size = x.size(0)
+        x = x.contiguous().view(batch_size, 1, -1)
+        x = self.latent_linear2(self.latent_dropout(self.activation(self.latent_linear1(x))))
+        if not self.batch_first:
+            x = x.permute(1, 0, 2)
+        return self.latent_dropout2(x)
     
     def _relative_position_bucket(self, relative_position, bidirectional=False, num_buckets=128, max_distance=128):
         r"""
@@ -719,12 +723,13 @@ class T5TransformerDecoderLayer(Module):
 
 
 class VAEsample(Module):
-    def __init__(self, d_model: int, d_latent: int, batch_first: bool, device=None, dtype=None) -> None:
+    def __init__(self, d_model: int, d_latent: int, batch_first: bool, nhead: int, device=None, dtype=None) -> None:
         factory_kwargs = {'device': device, 'dtype': dtype}
         super(VAEsample, self).__init__()
         self.device = device
         self.d_latent = d_latent
         self.d_model = d_model
+        self.cross_attention = MultiheadAttention(d_latent, nhead, dropout=0, batch_first=batch_first, **factory_kwargs)
         if batch_first:
             self.seq_pos = 1
         else:
@@ -742,7 +747,7 @@ class VAEsample(Module):
         latent_std = torch.exp(0.5*latent_logvar)
         norm_sample = torch.normal(mean = 0, std = 1, size=latent_mean.size(), device=self.device)
         out = latent_mean + latent_std * norm_sample
-        out = torch.concat((cdt, out), dim = self.seq_pos)
+        out = self.cross_attention(cdt, out, out)[0]
         out = self.latent2model(out)
         return out, latent_mean, latent_logvar
 
@@ -782,26 +787,26 @@ class TokenEmbedding(Module):
 #     # (batch_size, seq_length, d_model) if batch_first is True
 #     # (seq_length, batch_size, d_model) if batch_first is False
 #     def forward(self, x) -> Tensor:
-        if self.batch_first : # input size : (batch_size, seq_length, d_model)
-            seq_len = x.size(1)
-            pos_embed = self.encoding[:, :seq_len, :]
-        else :                # input size : (seq_length, batch_size, d_model)
-            seq_len = x.size(0)
-            pos_embed = self.encoding[:seq_len, :, :]
-        return x + pos_embed
+#         if self.batch_first : # input size : (batch_size, seq_length, d_model)
+#             seq_len = x.size(1)
+#             pos_embed = self.encoding[:, :seq_len, :]
+#         else :                # input size : (seq_length, batch_size, d_model)
+#             seq_len = x.size(0)
+#             pos_embed = self.encoding[:seq_len, :, :]
+#         return x + pos_embed
 
-class TransformerEmbedding(Module):
-    def __init__(self, d_model: int, vocab_size: int, max_len: int, batch_first: bool = False, device=None, dtype=None) -> None:
-        factory_kwargs = {'device': device, 'dtype': dtype}
-        super(TransformerEmbedding, self).__init__()
-        self.embed = TokenEmbedding(d_model=d_model, vocab_size=vocab_size, **factory_kwargs)
-        self.positional = PositionalEncoding(d_model=d_model, max_len=max_len, batch_first=batch_first, **factory_kwargs)
+# class TransformerEmbedding(Module):
+#     def __init__(self, d_model: int, vocab_size: int, max_len: int, batch_first: bool = False, device=None, dtype=None) -> None:
+#         factory_kwargs = {'device': device, 'dtype': dtype}
+#         super(TransformerEmbedding, self).__init__()
+#         self.embed = TokenEmbedding(d_model=d_model, vocab_size=vocab_size, **factory_kwargs)
+#         self.positional = PositionalEncoding(d_model=d_model, max_len=max_len, batch_first=batch_first, **factory_kwargs)
     
-    # input size : 
-    # (batch_size, seq_length) if batch_first is True
-    # (seq_length, batch_size) if batch_first is False
-    def forward(self, x) -> Tensor:
-        return self.positional(self.embed(x))
+#     # input size : 
+#     # (batch_size, seq_length) if batch_first is True
+#     # (seq_length, batch_size) if batch_first is False
+#     def forward(self, x) -> Tensor:
+#         return self.positional(self.embed(x))
 
 class VAE_Loss(Module):
     def __init__(self, beta: int, pad_idx: int) -> None:
