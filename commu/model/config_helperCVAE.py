@@ -18,7 +18,7 @@ def model(cfg):
     cfg.MODEL.pad_index = 0
     cfg.MODEL.vocab_size = 729
     cfg.MODEL.meta_length = 11
-    cfg.MODEL.num_buckets = 512
+    cfg.MODEL.num_buckets = 256
     cfg.MODEL.same_length = False
     return cfg
 
@@ -31,8 +31,8 @@ def train(cfg):
     cfg.TRAIN.tgt_length = 256
     cfg.TRAIN.mem_length = 1024
     cfg.TRAIN.seed = 1111
-    cfg.TRAIN.lr = 0.00004
-    cfg.TRAIN.lr_min = 0.000001
+    cfg.TRAIN.lr = 0.0004
+    cfg.TRAIN.lr_min = 0.00001
     cfg.TRAIN.warmup_step = 100
     cfg.TRAIN.clip = 1.0
     cfg.TRAIN.max_step = 20000

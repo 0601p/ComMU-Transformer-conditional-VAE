@@ -690,13 +690,16 @@ class T5TransformerDecoderLayer(Module):
         # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
         relative_postion_if_large = max_exact + (
             torch.log(relative_position.float() / max_exact)
-            / math.log(max_distance / max_exact)
+            / math.log(max_distance - 11 / max_exact)
             * (num_buckets - max_exact)
         ).to(torch.long)
         relative_postion_if_large = torch.min(
             relative_postion_if_large, torch.full_like(relative_postion_if_large, num_buckets - 1)
         )
 
+        q_len = relative_buckets.size(0)
+        k_len = relative_buckets.size(1)
+        relative_buckets[:, q_len:] = torch.arange(q_len, k_len).repeat(q_len, 1) + max_distance - 11
         relative_buckets += torch.where(is_small, relative_position, relative_postion_if_large)
         return relative_buckets
 
