@@ -104,7 +104,7 @@ class Transformer_CVAE(Module):
         self.src_tgt_embed = TokenEmbedding(d_model, vocab_size=vocab_size, **factory_kwargs)
         self.criterion = VAE_Loss(beta=beta, pad_idx=pad_idx) # beta = 1 from Transformer VAE paper, pad_idx from ComMU dataset
 
-    def forward_(self, src: Tensor, tgt: Tensor, cdt: Tensor, src_mask: Optional[Tensor] = None, tgt_mask: Optional[Tensor] = None,
+    def forward_(self, src: Tensor, tgt: Tensor, cdt: Tensor, latent: Tensor, src_mask: Optional[Tensor] = None, tgt_mask: Optional[Tensor] = None,
                 memory_mask: Optional[Tensor] = None, src_key_padding_mask: Optional[Tensor] = None,
                 tgt_key_padding_mask: Optional[Tensor] = None, memory_key_padding_mask: Optional[Tensor] = None) -> Tuple[Tensor, Tensor, Tensor]:
         r"""Take in and process masked source/target sequences.
@@ -164,6 +164,9 @@ class Transformer_CVAE(Module):
             raise RuntimeError("the feature number of src and tgt must be equal to d_model")
 
         encoder_out = self.encoder(src, mask=src_mask, src_key_padding_mask=src_key_padding_mask)
+        if latent is not None:
+            encoder_out += latent
+        
         latent_sample, latent_mu, latent_logvar = self.sample_layer(encoder_out, cdt)
         output = self.decoder(tgt, latent_sample, tgt_mask=tgt_mask, memory_mask=memory_mask,
                               tgt_key_padding_mask=tgt_key_padding_mask,
@@ -190,34 +193,31 @@ class Transformer_CVAE(Module):
 
         src_embed = self.local_encoder(src_embed)
         tgt_embed = self.local_encoder(tgt_embed)
-        out, latent_mu, latent_logvar = self.forward_(src_embed, tgt_embed, cdt_embed, src_tgt_mask, src_tgt_mask, cross_attention_mask, src_key_padding_mask, tgt_key_padding_mask, memory_key_padding_mask)
+        out, latent_mu, latent_logvar = self.forward_(tgt_embed, tgt_embed, cdt_embed, None, src_tgt_mask, src_tgt_mask, cross_attention_mask, src_key_padding_mask, tgt_key_padding_mask, memory_key_padding_mask)
         pred = F.log_softmax(self.local_decoder(out), dim = 2)
         loss, nll = self.criterion(pred, src, latent_mu, latent_logvar)
         return (loss, nll, out)
     
     # tgt : word sequence that starts with start token, filled with padding at the first step of generation
-    def forward_generate(self, input: Tensor, latent: Tensor, cdt: Tensor, src_mask: Optional[Tensor] = None, tgt_mask: Optional[Tensor] = None,
+    def forward_generate(self, tgt: Tensor, latent: Tensor, cdt: Tensor, src_mask: Optional[Tensor] = None, tgt_mask: Optional[Tensor] = None,
                 memory_mask: Optional[Tensor] = None, src_key_padding_mask: Optional[Tensor] = None,
                 tgt_key_padding_mask: Optional[Tensor] = None, memory_key_padding_mask: Optional[Tensor] = None) -> Tensor:
         
         if self.batch_first:
-            seq_len = input.size(1)
+            seq_len = tgt.size(1)
         else:
-            seq_len = input.size(0)
+            seq_len = tgt.size(0)
+        src_tgt_mask = self.generate_square_subsequent_mask(seq_len, device=self.device)
         src_tgt_mask = self.generate_square_subsequent_mask(seq_len, device=self.device)
         cross_attention_mask = self.generate_rectangle_subsequent_mask(seq_len, self.cdt_len, device=self.device)
-
-        input_embed = self.src_tgt_embed(input)
+        
+        tgt_embed = self.src_tgt_embed(tgt)
         cdt_embed = self.condition_embed(cdt)
 
-        input_embed = self.local_encoder(input_embed)
-        out = torch.concat((cdt_embed, latent), dim = 1 if self.batch_first else 0)
-        out = self.sample_layer.latent2model(out)
-        output = self.decoder(input_embed, out, tgt_mask=src_tgt_mask, memory_mask=cross_attention_mask,
-                              tgt_key_padding_mask=tgt_key_padding_mask,
-                              memory_key_padding_mask=memory_key_padding_mask)
-
-        return output
+        tgt_embed = self.local_encoder(tgt_embed)
+        out, latent_mu, latent_logvar = self.forward_(tgt_embed, tgt_embed, cdt_embed, latent, src_tgt_mask, src_tgt_mask, cross_attention_mask, src_key_padding_mask, tgt_key_padding_mask, memory_key_padding_mask)
+        
+        return out
 
 
 
@@ -782,26 +782,26 @@ class TokenEmbedding(Module):
 #     # (batch_size, seq_length, d_model) if batch_first is True
 #     # (seq_length, batch_size, d_model) if batch_first is False
 #     def forward(self, x) -> Tensor:
-        if self.batch_first : # input size : (batch_size, seq_length, d_model)
-            seq_len = x.size(1)
-            pos_embed = self.encoding[:, :seq_len, :]
-        else :                # input size : (seq_length, batch_size, d_model)
-            seq_len = x.size(0)
-            pos_embed = self.encoding[:seq_len, :, :]
-        return x + pos_embed
+#         if self.batch_first : # input size : (batch_size, seq_length, d_model)
+#             seq_len = x.size(1)
+#             pos_embed = self.encoding[:, :seq_len, :]
+#         else :                # input size : (seq_length, batch_size, d_model)
+#             seq_len = x.size(0)
+#             pos_embed = self.encoding[:seq_len, :, :]
+#         return x + pos_embed
 
-class TransformerEmbedding(Module):
-    def __init__(self, d_model: int, vocab_size: int, max_len: int, batch_first: bool = False, device=None, dtype=None) -> None:
-        factory_kwargs = {'device': device, 'dtype': dtype}
-        super(TransformerEmbedding, self).__init__()
-        self.embed = TokenEmbedding(d_model=d_model, vocab_size=vocab_size, **factory_kwargs)
-        self.positional = PositionalEncoding(d_model=d_model, max_len=max_len, batch_first=batch_first, **factory_kwargs)
+# class TransformerEmbedding(Module):
+#     def __init__(self, d_model: int, vocab_size: int, max_len: int, batch_first: bool = False, device=None, dtype=None) -> None:
+#         factory_kwargs = {'device': device, 'dtype': dtype}
+#         super(TransformerEmbedding, self).__init__()
+#         self.embed = TokenEmbedding(d_model=d_model, vocab_size=vocab_size, **factory_kwargs)
+#         self.positional = PositionalEncoding(d_model=d_model, max_len=max_len, batch_first=batch_first, **factory_kwargs)
     
-    # input size : 
-    # (batch_size, seq_length) if batch_first is True
-    # (seq_length, batch_size) if batch_first is False
-    def forward(self, x) -> Tensor:
-        return self.positional(self.embed(x))
+#     # input size : 
+#     # (batch_size, seq_length) if batch_first is True
+#     # (seq_length, batch_size) if batch_first is False
+#     def forward(self, x) -> Tensor:
+#         return self.positional(self.embed(x))
 
 class VAE_Loss(Module):
     def __init__(self, beta: int, pad_idx: int) -> None:

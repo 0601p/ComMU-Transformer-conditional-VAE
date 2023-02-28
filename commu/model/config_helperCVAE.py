@@ -8,7 +8,7 @@ def model(cfg):
     cfg.MODEL.num_heads = 10
     cfg.MODEL.units = 500
     cfg.MODEL.inner_size = 1000
-    cfg.MODEL.latent_dim = 8
+    cfg.MODEL.latent_dim = 256
     cfg.MODEL.dropout = 0.1
     cfg.MODEL.attention_dropout = 0.1 # Do not use this
     cfg.MODEL.layer_norm_eps = 1e-5
@@ -82,10 +82,9 @@ def get_default_cfg_inference():
     # Model related parameters
     cfg.GENERATION = CN()
     cfg.GENERATION.generation_length = 4096
-    cfg.GENERATION.seq_length = 128
-    cfg.GENERATION.latent_dim = 8
+    cfg.GENERATION.units = 500
     cfg.GENERATION.pad_index = 0
-    cfg.GENERATION.tau = 0.5
+    cfg.GENERATION.tau = 0.1
 
     cfg.freeze()
     return cfg

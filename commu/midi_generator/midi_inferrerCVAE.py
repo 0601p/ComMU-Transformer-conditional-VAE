@@ -184,14 +184,14 @@ class InferenceTask:
         self.inference_cfg = inference_cfg
     
     def generate_latent_init_seq(self):
-        latent_dim = self.inference_cfg.GENERATION.latent_dim
-        seq_length = self.inference_cfg.GENERATION.seq_length
-        latent = torch.normal(0, 1, (seq_length, 1, latent_dim)).to(self.device)
+        d_model = self.model.d_model
+        seq_length = self.model.seq_len
+        latent = torch.normal(0, 0.1, (1, 1, d_model)).to(self.device)
         seq = (torch.ones(seq_length, 1).long() * self.inference_cfg.GENERATION.pad_index).to(self.device)
         return latent, seq
 
     def update_seq_tensor(self, seq, seq_tensor):
-        seq_length = self.inference_cfg.GENERATION.seq_length
+        seq_length = self.model.seq_len
         cur_pos = len(seq) - 1
         if cur_pos >= seq_length:
             tmp = seq_tensor[1:, 0].clone()
@@ -205,7 +205,7 @@ class InferenceTask:
     ) -> torch.Tensor:
         seq_tensor, cur_pos = self.update_seq_tensor(seq, seq_tensor)
         logits = self.model.forward_generate(seq_tensor, latent, meta)[cur_pos, 0]
-        
+
         return logits
 
     def calc_probs(self, logits):
