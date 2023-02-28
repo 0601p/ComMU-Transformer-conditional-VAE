@@ -196,7 +196,7 @@ class Transformer_CVAE(Module):
         out, latent_mu, latent_logvar = self.forward_(tgt_embed, tgt_embed, cdt_embed, None, src_tgt_mask, src_tgt_mask, cross_attention_mask, src_key_padding_mask, tgt_key_padding_mask, memory_key_padding_mask)
         pred = F.log_softmax(self.local_decoder(out), dim = 2)
         loss, nll = self.criterion(pred, src, latent_mu, latent_logvar)
-        return (loss, nll, out)
+        return (loss, nll, pred)
     
     # tgt : word sequence that starts with start token, filled with padding at the first step of generation
     def forward_generate(self, tgt: Tensor, latent: Tensor, cdt: Tensor, src_mask: Optional[Tensor] = None, tgt_mask: Optional[Tensor] = None,
@@ -216,8 +216,8 @@ class Transformer_CVAE(Module):
 
         tgt_embed = self.local_encoder(tgt_embed)
         out, latent_mu, latent_logvar = self.forward_(tgt_embed, tgt_embed, cdt_embed, latent, src_tgt_mask, src_tgt_mask, cross_attention_mask, src_key_padding_mask, tgt_key_padding_mask, memory_key_padding_mask)
-        
-        return out
+        pred = F.log_softmax(self.local_decoder(out), dim = 2)
+        return pred
 
 
 

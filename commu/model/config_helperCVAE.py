@@ -18,7 +18,7 @@ def model(cfg):
     cfg.MODEL.pad_index = 0
     cfg.MODEL.vocab_size = 729
     cfg.MODEL.meta_length = 11
-    cfg.MODEL.num_buckets = 128
+    cfg.MODEL.num_buckets = 512
     cfg.MODEL.same_length = False
     return cfg
 
@@ -28,7 +28,7 @@ def train(cfg):
     cfg.TRAIN = CN()
     cfg.TRAIN.batch_size = 256
     cfg.TRAIN.batch_chunk = 4
-    cfg.TRAIN.tgt_length = 128
+    cfg.TRAIN.tgt_length = 256
     cfg.TRAIN.mem_length = 1024
     cfg.TRAIN.seed = 1111
     cfg.TRAIN.lr = 0.00004
@@ -84,7 +84,7 @@ def get_default_cfg_inference():
     cfg.GENERATION.generation_length = 4096
     cfg.GENERATION.units = 500
     cfg.GENERATION.pad_index = 0
-    cfg.GENERATION.tau = 0.1
+    cfg.GENERATION.tau = 0.5
 
     cfg.freeze()
     return cfg
