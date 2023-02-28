@@ -483,22 +483,7 @@ class T5TransformerEncoderLayer(Module):
             relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
         # now relative_position is in the range [0, inf)
 
-        # half of the buckets are for exact increments in positions
-        max_exact = num_buckets // 2
-        is_small = relative_position < max_exact
-
-        # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
-        relative_postion_if_large = max_exact + (
-            torch.log(relative_position.float() / max_exact)
-            / math.log(max_distance / max_exact)
-            * (num_buckets - max_exact)
-        ).to(torch.long)
-        relative_postion_if_large = torch.min(
-            relative_postion_if_large, torch.full_like(relative_postion_if_large, num_buckets - 1)
-        )
-
-        relative_buckets += torch.where(is_small, relative_position, relative_postion_if_large)
-        return relative_buckets
+        return relative_position
 
     def compute_bias(self, batch_size, query_length, key_length, relative_attention_bias):
         """Compute binned relative position bias"""
@@ -578,7 +563,7 @@ class T5TransformerDecoderLayer(Module):
 
         self.relative_attention_num_buckets = num_buckets
         self.relative_attention_bias_sa = Embedding(self.relative_attention_num_buckets, nhead, **factory_kwargs)
-        self.relative_attention_bias_mha = Embedding(self.relative_attention_num_buckets, nhead, **factory_kwargs)
+        self.relative_attention_bias_mha = Embedding(self.relative_attention_num_buckets + 11, nhead, **factory_kwargs)
 
         # Legacy string support for activation function.
         if isinstance(activation, str):
@@ -656,7 +641,7 @@ class T5TransformerDecoderLayer(Module):
         x = self.linear2(self.dropout(self.activation(self.linear1(x))))
         return self.dropout3(x)
     
-    def _relative_position_bucket(self, relative_position, bidirectional=False, num_buckets=128, max_distance=128):
+    def _relative_position_bucket(self, relative_position, bidirectional=False, num_buckets=128):
         r"""
         Adapted from Mesh Tensorflow:
         https://github.com/tensorflow/mesh/blob/0cb87fe07da627bf0b7e60475d59f95ed6b5be3d/mesh_tensorflow/transformer/transformer_layers.py#L593
@@ -680,28 +665,13 @@ class T5TransformerDecoderLayer(Module):
             relative_buckets += (relative_position > 0).to(torch.long) * num_buckets
             relative_position = torch.abs(relative_position)
         else:
-            relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
-        # now relative_position is in the range [0, inf)
-
-        # half of the buckets are for exact increments in positions
-        max_exact = num_buckets // 2
-        is_small = relative_position < max_exact
-
-        # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
-        relative_postion_if_large = max_exact + (
-            torch.log(relative_position.float() / max_exact)
-            / math.log(max_distance - 11 / max_exact)
-            * (num_buckets - max_exact)
-        ).to(torch.long)
-        relative_postion_if_large = torch.min(
-            relative_postion_if_large, torch.full_like(relative_postion_if_large, num_buckets - 1)
-        )
-
-        q_len = relative_buckets.size(0)
-        k_len = relative_buckets.size(1)
-        relative_buckets[:, q_len:] = torch.arange(q_len, k_len).repeat(q_len, 1) + max_distance - 11
-        relative_buckets += torch.where(is_small, relative_position, relative_postion_if_large)
-        return relative_buckets
+            relative_position = torch.min(relative_position, torch.zeros_like(relative_position))
+        
+        q_len = relative_position.size(0)
+        k_len = relative_position.size(1)
+        if q_len != k_len:
+            relative_position[:, q_len:] = torch.arange(q_len, k_len).repeat(q_len, 1) + num_buckets
+        return relative_position
 
     def compute_bias(self,batch_size, query_length, key_length, relative_attention_bias):
         """Compute binned relative position bias"""
