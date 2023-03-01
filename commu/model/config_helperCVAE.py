@@ -4,11 +4,11 @@ from yacs.config import CfgNode as CN
 def model(cfg):
     # For model
     cfg.MODEL = CN()
-    cfg.MODEL.num_layers = 6
+    cfg.MODEL.num_layers = 3
     cfg.MODEL.num_heads = 10
     cfg.MODEL.units = 500
     cfg.MODEL.inner_size = 1000
-    cfg.MODEL.latent_dim = 160
+    cfg.MODEL.latent_dim = 320
     cfg.MODEL.dropout = 0.1
     cfg.MODEL.attention_dropout = 0.1 # Do not use this
     cfg.MODEL.layer_norm_eps = 1e-5
@@ -31,8 +31,8 @@ def train(cfg):
     cfg.TRAIN.tgt_length = 128
     cfg.TRAIN.mem_length = 1024
     cfg.TRAIN.seed = 1111
-    cfg.TRAIN.lr = 0.00004
-    cfg.TRAIN.lr_min = 0.000001
+    cfg.TRAIN.lr = 0.00001
+    cfg.TRAIN.lr_min = 0.00000025
     cfg.TRAIN.warmup_step = 100
     cfg.TRAIN.clip = 1.0
     cfg.TRAIN.max_step = 20000
@@ -50,9 +50,10 @@ def init(cfg):
 
     # For evaluation
     cfg.EVALUATE = CN()
-    cfg.EVALUATE.batch_size = 10
+    cfg.EVALUATE.batch_size = 256
     cfg.EVALUATE.tgt_length = 128
     cfg.EVALUATE.mem_length = 2048
+    cfg.EVALUATE.max_step = 100
 
     return cfg
 
@@ -83,9 +84,9 @@ def get_default_cfg_inference():
     cfg.GENERATION = CN()
     cfg.GENERATION.generation_length = 4096
     cfg.GENERATION.seq_length = 128
-    cfg.GENERATION.latent_dim = 8
+    cfg.GENERATION.latent_dim = 500
     cfg.GENERATION.pad_index = 0
-    cfg.GENERATION.tau = 0.5
+    cfg.GENERATION.tau = 0.1
 
     cfg.freeze()
     return cfg

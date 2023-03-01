@@ -194,7 +194,7 @@ class Transformer_CVAE(Module):
         src_embed = self.local_encoder(src_embed)
         tgt_embed = self.local_encoder(tgt_embed)
         out, latent_mu, latent_logvar = self.forward_(tgt_embed, tgt_embed, cdt_embed, None, src_tgt_mask, src_tgt_mask, cross_attention_mask, src_key_padding_mask, tgt_key_padding_mask, memory_key_padding_mask)
-        pred = F.log_softmax(self.local_decoder(out), dim = 2)
+        pred = self.local_decoder(out)
         loss, nll = self.criterion(pred, src, latent_mu, latent_logvar)
         return (loss, nll, pred)
     
@@ -216,7 +216,7 @@ class Transformer_CVAE(Module):
 
         tgt_embed = self.local_encoder(tgt_embed)
         out, latent_mu, latent_logvar = self.forward_(tgt_embed, tgt_embed, cdt_embed, latent, src_tgt_mask, src_tgt_mask, cross_attention_mask, src_key_padding_mask, tgt_key_padding_mask, memory_key_padding_mask)
-        pred = F.log_softmax(self.local_decoder(out), dim = 2)
+        pred = self.local_decoder(out)
         return pred
 
 
@@ -717,7 +717,7 @@ class VAEsample(Module):
         latent_std = torch.exp(0.5*latent_logvar)
         norm_sample = torch.normal(mean = 0, std = 1, size=latent_mean.size(), device=self.device)
         out = latent_mean + latent_std * norm_sample
-        out = self.cross_attention(cdt, out, out)[0]
+        out = self.cross_attention(cdt, out, out)[0] + cdt
         out = self.latent2model(out)
         return out, latent_mean, latent_logvar
 

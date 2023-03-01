@@ -186,7 +186,7 @@ class InferenceTask:
     def generate_latent_init_seq(self):
         latent_dim = self.inference_cfg.GENERATION.latent_dim
         seq_length = self.inference_cfg.GENERATION.seq_length
-        latent = torch.normal(0, 1, (seq_length, 1, latent_dim)).to(self.device)
+        latent = torch.normal(0, 0, (seq_length, 1, latent_dim)).to(self.device)
         seq = (torch.ones(seq_length, 1).long() * self.inference_cfg.GENERATION.pad_index).to(self.device)
         return latent, seq
 

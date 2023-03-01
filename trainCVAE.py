@@ -90,8 +90,11 @@ def evaluate(eval_iter):
 
             ret = model(target, data, meta)
             loss, nll, out = ret
-            total_nll += batch_token_num * nll.float().item()
-            total_token_num += batch_token_num
+            total_nll += nll.float().item() * (target != dataset.vocab.pad_id).sum()
+            total_token_num += (target != dataset.vocab.pad_id).sum()
+
+            if i == cfg.EVALUATE.max_step:
+                break
 
     model.train()
 
@@ -200,7 +203,7 @@ def train():
             )
 
             val_token_num_pt = torch.tensor(val_token_num).to(device)
-            val_total_nll_pt = torch.tensor(val_total_nll / 10000.0).to(device)
+            val_total_nll_pt = torch.tensor(val_total_nll / cfg.EVALUATE.max_step).to(device)
 
             torch.distributed.all_reduce(val_token_num_pt)
             torch.distributed.all_reduce(val_total_nll_pt)
@@ -208,7 +211,7 @@ def train():
             val_token_num = val_token_num_pt.item()
             val_total_nll = val_total_nll_pt.item()
 
-            val_nll = val_total_nll / (val_token_num / 10000.0)
+            val_nll = val_total_nll / (val_token_num / cfg.EVALUATE.max_step)
 
             if args.local_rank == 0:
                 logger.info(
@@ -248,35 +251,35 @@ def train():
                     name,
                 )
 
-                test_start_time = time.time()
+                # test_start_time = time.time()
 
-                def calculate_test_nll_during_training(test_iter):
+                # def calculate_test_nll_during_training(test_iter):
 
-                    test_token_num, test_total_nll = evaluate(
-                        eval_iter=test_iter
-                    )
-                    test_token_num_pt = torch.tensor(test_token_num).to(device)
-                    test_total_nll_pt = torch.tensor(test_total_nll / 10000.0).to(device)
-                    torch.distributed.all_reduce(test_token_num_pt)
-                    torch.distributed.all_reduce(test_total_nll_pt)
+                #     test_token_num, test_total_nll = evaluate(
+                #         eval_iter=test_iter
+                #     )
+                #     test_token_num_pt = torch.tensor(test_token_num).to(device)
+                #     test_total_nll_pt = torch.tensor(test_total_nll / 10000.0).to(device)
+                #     torch.distributed.all_reduce(test_token_num_pt)
+                #     torch.distributed.all_reduce(test_total_nll_pt)
 
-                    test_token_num = test_token_num_pt.item()
-                    test_nll = test_total_nll_pt.item() / (test_token_num / 10000.0)
+                #     test_token_num = test_token_num_pt.item()
+                #     test_nll = test_total_nll_pt.item() / (test_token_num / 10000.0)
 
-                    return test_token_num, test_nll
+                #     return test_token_num, test_nll
 
-                test_token_num, test_nll = calculate_test_nll_during_training(test_iter)
+                # test_token_num, test_nll = calculate_test_nll_during_training(test_iter)
 
-                if args.local_rank == 0:
-                    logger.info(
-                        "Test step {}, time={}s, test nll={}, test ppl={}, #evaluated tokens={}".format(
-                            train_step,
-                            time.time() - test_start_time,
-                            test_nll,
-                            math.exp(test_nll),
-                            test_token_num,
-                        )
-                    )
+                # if args.local_rank == 0:
+                #     logger.info(
+                #         "Test step {}, time={}s, test nll={}, test ppl={}, #evaluated tokens={}".format(
+                #             train_step,
+                #             time.time() - test_start_time,
+                #             test_nll,
+                #             math.exp(test_nll),
+                #             test_token_num,
+                #         )
+                #     )
 
         if train_step == cfg.TRAIN.max_step:
             logger.info("-" * 100)
