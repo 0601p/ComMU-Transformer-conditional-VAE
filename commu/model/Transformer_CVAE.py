@@ -79,9 +79,9 @@ class Transformer_CVAE(Module):
         encoder_norm = LayerNorm(d_model, eps=layer_norm_eps, **factory_kwargs)
         self.encoder = TransformerEncoder(encoder_layer, num_encoder_layers, encoder_norm)
 
-        self.sample_layer = VAEsample(d_model, d_latent, batch_first, **factory_kwargs)
+        self.sample_layer = VAEsample(d_model, d_latent, batch_first, nhead, **factory_kwargs)
 
-        decoder_layer = T5TransformerDecoderLayer(d_model, nhead, num_buckets, dim_feedforward, dropout,
+        decoder_layer = T5TransformerDecoderLayer(d_model,  cdt_len, nhead, num_buckets, dim_feedforward, dropout,
                                                 activation, layer_norm_eps, batch_first, norm_first,
                                                 **factory_kwargs)
         decoder_norm = LayerNorm(d_model, eps=layer_norm_eps, **factory_kwargs)
@@ -194,7 +194,7 @@ class Transformer_CVAE(Module):
         src_embed = self.local_encoder(src_embed)
         tgt_embed = self.local_encoder(tgt_embed)
         out, latent_mu, latent_logvar = self.forward_(tgt_embed, tgt_embed, cdt_embed, None, src_tgt_mask, src_tgt_mask, cross_attention_mask, src_key_padding_mask, tgt_key_padding_mask, memory_key_padding_mask)
-        pred = F.log_softmax(self.local_decoder(out), dim = 2)
+        pred = self.local_decoder(out)
         loss, nll = self.criterion(pred, src, latent_mu, latent_logvar)
         return (loss, nll, pred)
     
@@ -202,7 +202,7 @@ class Transformer_CVAE(Module):
     def forward_generate(self, tgt: Tensor, latent: Tensor, cdt: Tensor, src_mask: Optional[Tensor] = None, tgt_mask: Optional[Tensor] = None,
                 memory_mask: Optional[Tensor] = None, src_key_padding_mask: Optional[Tensor] = None,
                 tgt_key_padding_mask: Optional[Tensor] = None, memory_key_padding_mask: Optional[Tensor] = None) -> Tensor:
-        
+
         if self.batch_first:
             seq_len = tgt.size(1)
         else:
@@ -216,7 +216,7 @@ class Transformer_CVAE(Module):
 
         tgt_embed = self.local_encoder(tgt_embed)
         out, latent_mu, latent_logvar = self.forward_(tgt_embed, tgt_embed, cdt_embed, latent, src_tgt_mask, src_tgt_mask, cross_attention_mask, src_key_padding_mask, tgt_key_padding_mask, memory_key_padding_mask)
-        pred = F.log_softmax(self.local_decoder(out), dim = 2)
+        pred = self.local_decoder(out)
         return pred
 
 
@@ -537,7 +537,7 @@ class T5TransformerDecoderLayer(Module):
     """
     __constants__ = ['batch_first', 'norm_first']
 
-    def __init__(self, d_model: int, nhead: int, num_buckets: int, dim_feedforward: int = 2048, dropout: float = 0.1,
+    def __init__(self, d_model: int, meta_len: int, nhead: int, num_buckets: int, dim_feedforward: int = 2048, dropout: float = 0.1,
                  activation: Union[str, Callable[[Tensor], Tensor]] = F.relu,
                  layer_norm_eps: float = 1e-5, batch_first: bool = False, norm_first: bool = False,
                  device=None, dtype=None) -> None:
@@ -563,7 +563,7 @@ class T5TransformerDecoderLayer(Module):
 
         self.relative_attention_num_buckets = num_buckets
         self.relative_attention_bias_sa = Embedding(self.relative_attention_num_buckets, nhead, **factory_kwargs)
-        self.relative_attention_bias_mha = Embedding(self.relative_attention_num_buckets + 11, nhead, **factory_kwargs)
+        self.relative_attention_bias_mha = Embedding(meta_len, nhead, **factory_kwargs)
 
         # Legacy string support for activation function.
         if isinstance(activation, str):
@@ -629,7 +629,7 @@ class T5TransformerDecoderLayer(Module):
     # multihead attention block
     def _mha_block(self, x: Tensor, mem: Tensor,
                    attn_mask: Optional[Tensor], key_padding_mask: Optional[Tensor], is_causal: bool = False) -> Tensor:
-        mask_bias = attn_mask + self.compute_bias(x.size(1), x.size(0), mem.size(0), self.relative_attention_bias_mha)
+        mask_bias = self.compute_bias(x.size(1), x.size(0), mem.size(0), self.relative_attention_bias_mha)
         x = self.multihead_attn(x, mem, mem,
                                 attn_mask=mask_bias,
                                 key_padding_mask=key_padding_mask,
@@ -641,7 +641,7 @@ class T5TransformerDecoderLayer(Module):
         x = self.linear2(self.dropout(self.activation(self.linear1(x))))
         return self.dropout3(x)
     
-    def _relative_position_bucket(self, relative_position, bidirectional=False, num_buckets=128):
+    def _relative_position_bucket(self, relative_position, bidirectional=False, num_buckets=128, max_distance=128):
         r"""
         Adapted from Mesh Tensorflow:
         https://github.com/tensorflow/mesh/blob/0cb87fe07da627bf0b7e60475d59f95ed6b5be3d/mesh_tensorflow/transformer/transformer_layers.py#L593
@@ -666,39 +666,41 @@ class T5TransformerDecoderLayer(Module):
             relative_position = torch.abs(relative_position)
         else:
             relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
-        
-        q_len = relative_position.size(0)
-        k_len = relative_position.size(1)
-        if q_len != k_len:
-            relative_position[:, k_len - q_len:] = relative_position[:, :q_len]
-            relative_position[:, :k_len - q_len] = torch.arange(0, k_len - q_len, dtype=torch.long, device=self.device)[None, :].repeat(q_len, 1) + num_buckets
+        # now relative_position is in the range [0, inf)
+
         return relative_position
 
     def compute_bias(self,batch_size, query_length, key_length, relative_attention_bias):
         """Compute binned relative position bias"""
-        context_position = torch.arange(
-            query_length, dtype=torch.long, device=self.device
-        )[:, None]
-        memory_position = torch.arange(
-            key_length, dtype=torch.long, device=self.device
-        )[None, :]
-        relative_position = memory_position - context_position  # shape (query_length, key_length)
-        relative_position_bucket = self._relative_position_bucket(
-            relative_position,  # shape (query_length, key_length),
-            num_buckets=self.relative_attention_num_buckets,
-        )
+        if query_length != key_length:
+            relative_position_bucket = torch.arange(
+                key_length, dtype=torch.long, device=self.device
+            )[None, :].repeat(query_length, 1)
+        else:
+            context_position = torch.arange(
+                query_length, dtype=torch.long, device=self.device
+            )[:, None]
+            memory_position = torch.arange(
+                key_length, dtype=torch.long, device=self.device
+            )[None, :]
+            relative_position = memory_position - context_position  # shape (query_length, key_length)
+            relative_position_bucket = self._relative_position_bucket(
+                relative_position,  # shape (query_length, key_length),
+                num_buckets=self.relative_attention_num_buckets,
+            )
         values = relative_attention_bias(relative_position_bucket)  # shape (query_length, key_length, num_heads)
         values = values.permute([2, 0, 1]).repeat(batch_size, 1, 1) # shape (num_heads, query_length, key_length)
         return values
 
 
 class VAEsample(Module):
-    def __init__(self, d_model: int, d_latent: int, batch_first: bool, device=None, dtype=None) -> None:
+    def __init__(self, d_model: int, d_latent: int, batch_first: bool, nhead: int, device=None, dtype=None) -> None:
         factory_kwargs = {'device': device, 'dtype': dtype}
         super(VAEsample, self).__init__()
         self.device = device
         self.d_latent = d_latent
         self.d_model = d_model
+        self.cross_attention = MultiheadAttention(d_latent, nhead, dropout=0, batch_first=batch_first, **factory_kwargs)
         if batch_first:
             self.seq_pos = 1
         else:
@@ -716,7 +718,7 @@ class VAEsample(Module):
         latent_std = torch.exp(0.5*latent_logvar)
         norm_sample = torch.normal(mean = 0, std = 1, size=latent_mean.size(), device=self.device)
         out = latent_mean + latent_std * norm_sample
-        out = torch.concat((cdt, out), dim = self.seq_pos)
+        out = self.cross_attention(cdt, out, out)[0] + cdt
         out = self.latent2model(out)
         return out, latent_mean, latent_logvar
 
