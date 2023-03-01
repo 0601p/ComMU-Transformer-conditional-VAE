@@ -249,7 +249,6 @@ class InferenceTask:
                 break
 
             if teacher.next_tokens_forced:
-                seq_tensor, _ = self.update_seq_tensor(seq, seq_tensor)
                 next_token = teacher.next_tokens_forced.pop(0)
                 seq.append(next_token)
                 logits = self.calc_logits(seq, seq_tensor, latent, meta)

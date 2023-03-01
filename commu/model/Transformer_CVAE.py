@@ -104,7 +104,7 @@ class Transformer_CVAE(Module):
         self.src_tgt_embed = TokenEmbedding(d_model, vocab_size=vocab_size, **factory_kwargs)
         self.criterion = VAE_Loss(beta=beta, pad_idx=pad_idx) # beta = 1 from Transformer VAE paper, pad_idx from ComMU dataset
 
-    def forward_(self, src: Tensor, tgt: Tensor, cdt: Tensor, src_mask: Optional[Tensor] = None, tgt_mask: Optional[Tensor] = None,
+    def forward_(self, src: Tensor, tgt: Tensor, cdt: Tensor, latent: Tensor, src_mask: Optional[Tensor] = None, tgt_mask: Optional[Tensor] = None,
                 memory_mask: Optional[Tensor] = None, src_key_padding_mask: Optional[Tensor] = None,
                 tgt_key_padding_mask: Optional[Tensor] = None, memory_key_padding_mask: Optional[Tensor] = None) -> Tuple[Tensor, Tensor, Tensor]:
         r"""Take in and process masked source/target sequences.
@@ -164,6 +164,9 @@ class Transformer_CVAE(Module):
             raise RuntimeError("the feature number of src and tgt must be equal to d_model")
 
         encoder_out = self.encoder(src, mask=src_mask, src_key_padding_mask=src_key_padding_mask)
+        if latent is not None:
+            encoder_out += latent
+        
         latent_sample, latent_mu, latent_logvar = self.sample_layer(encoder_out, cdt)
         output = self.decoder(tgt, latent_sample, tgt_mask=tgt_mask, memory_mask=memory_mask,
                               tgt_key_padding_mask=tgt_key_padding_mask,
@@ -190,34 +193,31 @@ class Transformer_CVAE(Module):
 
         src_embed = self.local_encoder(src_embed)
         tgt_embed = self.local_encoder(tgt_embed)
-        out, latent_mu, latent_logvar = self.forward_(src_embed, tgt_embed, cdt_embed, src_tgt_mask, src_tgt_mask, cross_attention_mask, src_key_padding_mask, tgt_key_padding_mask, memory_key_padding_mask)
+        out, latent_mu, latent_logvar = self.forward_(tgt_embed, tgt_embed, cdt_embed, None, src_tgt_mask, src_tgt_mask, cross_attention_mask, src_key_padding_mask, tgt_key_padding_mask, memory_key_padding_mask)
         pred = F.log_softmax(self.local_decoder(out), dim = 2)
         loss, nll = self.criterion(pred, src, latent_mu, latent_logvar)
-        return (loss, nll, out)
+        return (loss, nll, pred)
     
     # tgt : word sequence that starts with start token, filled with padding at the first step of generation
-    def forward_generate(self, input: Tensor, latent: Tensor, cdt: Tensor, src_mask: Optional[Tensor] = None, tgt_mask: Optional[Tensor] = None,
+    def forward_generate(self, tgt: Tensor, latent: Tensor, cdt: Tensor, src_mask: Optional[Tensor] = None, tgt_mask: Optional[Tensor] = None,
                 memory_mask: Optional[Tensor] = None, src_key_padding_mask: Optional[Tensor] = None,
                 tgt_key_padding_mask: Optional[Tensor] = None, memory_key_padding_mask: Optional[Tensor] = None) -> Tensor:
         
         if self.batch_first:
-            seq_len = input.size(1)
+            seq_len = tgt.size(1)
         else:
-            seq_len = input.size(0)
+            seq_len = tgt.size(0)
+        src_tgt_mask = self.generate_square_subsequent_mask(seq_len, device=self.device)
         src_tgt_mask = self.generate_square_subsequent_mask(seq_len, device=self.device)
         cross_attention_mask = self.generate_rectangle_subsequent_mask(seq_len, self.cdt_len, device=self.device)
-
-        input_embed = self.src_tgt_embed(input)
+        
+        tgt_embed = self.src_tgt_embed(tgt)
         cdt_embed = self.condition_embed(cdt)
 
-        input_embed = self.local_encoder(input_embed)
-
-        out = self.sample_layer(latent, cdt_embed)
-        output = self.decoder(input_embed, out, tgt_mask=src_tgt_mask, memory_mask=cross_attention_mask,
-                              tgt_key_padding_mask=tgt_key_padding_mask,
-                              memory_key_padding_mask=memory_key_padding_mask)
-
-        return output
+        tgt_embed = self.local_encoder(tgt_embed)
+        out, latent_mu, latent_logvar = self.forward_(tgt_embed, tgt_embed, cdt_embed, latent, src_tgt_mask, src_tgt_mask, cross_attention_mask, src_key_padding_mask, tgt_key_padding_mask, memory_key_padding_mask)
+        pred = F.log_softmax(self.local_decoder(out), dim = 2)
+        return pred
 
 
 
@@ -483,22 +483,7 @@ class T5TransformerEncoderLayer(Module):
             relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
         # now relative_position is in the range [0, inf)
 
-        # half of the buckets are for exact increments in positions
-        max_exact = num_buckets // 2
-        is_small = relative_position < max_exact
-
-        # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
-        relative_postion_if_large = max_exact + (
-            torch.log(relative_position.float() / max_exact)
-            / math.log(max_distance / max_exact)
-            * (num_buckets - max_exact)
-        ).to(torch.long)
-        relative_postion_if_large = torch.min(
-            relative_postion_if_large, torch.full_like(relative_postion_if_large, num_buckets - 1)
-        )
-
-        relative_buckets += torch.where(is_small, relative_position, relative_postion_if_large)
-        return relative_buckets
+        return relative_position
 
     def compute_bias(self, batch_size, query_length, key_length, relative_attention_bias):
         """Compute binned relative position bias"""
@@ -655,10 +640,10 @@ class T5TransformerDecoderLayer(Module):
             x = x.permute(1, 0, 2)
         batch_size = x.size(0)
         x = x.contiguous().view(batch_size, 1, -1)
-        x = self.latent_linear2(self.latent_dropout(self.activation(self.latent_linear1(x))))
+        x = self.latent_dropout2(self.latent_linear2(self.latent_dropout(self.activation(self.latent_linear1(x)))))
         if not self.batch_first:
             x = x.permute(1, 0, 2)
-        return self.latent_dropout2(x)
+        return x
     
     def _relative_position_bucket(self, relative_position, bidirectional=False, num_buckets=128, max_distance=128):
         r"""
@@ -687,22 +672,7 @@ class T5TransformerDecoderLayer(Module):
             relative_position = -torch.min(relative_position, torch.zeros_like(relative_position))
         # now relative_position is in the range [0, inf)
 
-        # half of the buckets are for exact increments in positions
-        max_exact = num_buckets // 2
-        is_small = relative_position < max_exact
-
-        # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
-        relative_postion_if_large = max_exact + (
-            torch.log(relative_position.float() / max_exact)
-            / math.log(max_distance / max_exact)
-            * (num_buckets - max_exact)
-        ).to(torch.long)
-        relative_postion_if_large = torch.min(
-            relative_postion_if_large, torch.full_like(relative_postion_if_large, num_buckets - 1)
-        )
-
-        relative_buckets += torch.where(is_small, relative_position, relative_postion_if_large)
-        return relative_buckets
+        return relative_position
 
     def compute_bias(self,batch_size, query_length, key_length, relative_attention_bias):
         """Compute binned relative position bias"""
