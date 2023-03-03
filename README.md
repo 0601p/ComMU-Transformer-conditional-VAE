@@ -36,7 +36,7 @@ python3 dynamic_eval.py --data_dir ./dataset/output_npy --checkpoint_path ./chec
 ## Generating
 - generation involves choice of metadata, regarding which type of music(midi file) we intend to generate. the example of command is showed below.
 ```
-python3 generateCVAE.py \
+python3 generate.py \
 --checkpoint_dir ./checkpoints/checkpoint_best.pt \
 --dynamic_eval_dir ./dynamic_eval \
 --output_dir ./output_dir \

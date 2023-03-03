@@ -42,7 +42,7 @@ def optim(cfg):
     cfg.OPTIM.max_step = 100
     cfg.OPTIM.batch_size = 64
     cfg.OPTIM.seq_len = 128
-    cfg.OPTIM.device = 'gpu'
+    cfg.OPTIM.device = 'cuda'
     return cfg
 
 
@@ -78,7 +78,7 @@ def get_default_cfg_inference():
     # # Model related parameters
     cfg.MODEL = CN()
     cfg.MODEL.memory_length = 4146
-    cfg.MODEL.device = "gpu"
+    cfg.MODEL.device = "cuda"
     # Sampling related parameters
     cfg.SAMPLING = CN()
     cfg.SAMPLING.threshold = 32.0
@@ -87,7 +87,7 @@ def get_default_cfg_inference():
     # Model related parameters
     cfg.GENERATION = CN()
     cfg.GENERATION.generation_length = 4096
-
+    cfg = optim(cfg)
 
     cfg.freeze()
     return cfg

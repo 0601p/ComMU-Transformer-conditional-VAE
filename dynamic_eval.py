@@ -39,8 +39,8 @@ train_iter = dataset.get_iterator(
     cfg.OPTIM.batch_size, cfg.OPTIM.seq_len, cfg.OPTIM.device, "train", False
 )
 
-model = MemTransformerLM(cfg, dataset._vocab)
-checkpoint = torch.load(args.checkpoint_path,  map_location=torch.device('cpu'))
+model = MemTransformerLM(cfg, dataset._vocab).to(cfg.OPTIM.device)
+checkpoint = torch.load(args.checkpoint_path,  map_location=torch.device('cuda'))
 model.load_state_dict(checkpoint["model"], strict=False)
 
 MS, data0, decrate = gradstat(model, cfg.OPTIM, train_iter())

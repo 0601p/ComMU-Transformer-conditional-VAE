@@ -198,7 +198,7 @@ class InferenceTask:
             :, np.newaxis
         ]
         context = torch.from_numpy(ctx).to(self.device).type(torch.long)
-        _, init_mems, _ = self.model.forward_generate(context, mems=None)
+        _, init_mems = self.model.forward_generate(context, None)
         init_seq = seq + encoded_meta[:num_conditional_tokens]
         return init_seq, init_mems
 
@@ -207,17 +207,21 @@ class InferenceTask:
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         inp = np.array([seq[-1]], dtype=np.int32)[:, np.newaxis]
         input_token = torch.from_numpy(inp).to(self.device).type(torch.long)
-        target_token = torch.zeros_like(input_token).to(self.device)
-        target_token[:-1, :] = input_token[1:, :]
-        self.model.zero_grad()
-        ret = self.model.forward_generate(input_token, mems, target_token)
-        all_logits, mems, loss = ret
-        loss = loss[target_token != 0]
-        loss = loss.float().mean()
-        loss.backward()
+        ret = self.model.forward_generate(input_token, mems)
+        all_logits, mems = ret
         logits = all_logits[-1, 0][1:]
-        self.optimizer.step(self.model)
         return logits, mems
+    
+    def update_params(self, seq: List[int], mems: torch.Tensor):
+        inp = np.array([seq[-2]], dtype=np.int32)[:, np.newaxis]
+        input_token = torch.from_numpy(inp).to(self.device).type(torch.long)
+        target_token = np.array([seq[-1]], dtype=np.int32)[:, np.newaxis]
+        target_token = torch.from_numpy(inp).to(self.device).type(torch.long)
+        self.model.zero_grad()
+        loss, _ = self.model(input_token, target_token, None, mems)
+        loss.requires_grad_(True)
+        loss.backward()
+        self.optimizer.update(self.model)
 
     def calc_probs(self, logits):
         # Handle temp 0 (argmax) case
@@ -271,6 +275,8 @@ class InferenceTask:
         for _ in range(self.inference_cfg.GENERATION.generation_length):
             if seq[-1] == 1:
                 break
+
+            self.update_params(seq, mems)
 
             if teacher.next_tokens_forced:
                 next_token = teacher.next_tokens_forced.pop(0)
