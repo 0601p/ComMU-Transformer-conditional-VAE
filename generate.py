@@ -11,6 +11,7 @@ def parse_args() -> Dict[str, argparse.ArgumentParser]:
 
     # Model Arguments
     model_arg_parser.add_argument("--checkpoint_dir", type=str)
+    model_arg_parser.add_argument("--dynamic_eval_dir", type=str, required=True)
 
     # Input Arguments
     input_arg_parser.add_argument("--output_dir", type=str, required=True)
@@ -52,7 +53,7 @@ def parse_args() -> Dict[str, argparse.ArgumentParser]:
 
 def main(model_args: argparse.Namespace, input_args: argparse.Namespace):
     pipeline = MidiGenerationPipeline()
-    pipeline.initialize_model(vars(model_args))
+    pipeline.initialize_model(vars(model_args), model_args.dynamic_eval_dir)
     pipeline.initialize_generation()
 
     inference_cfg = pipeline.model_initialize_task.inference_cfg

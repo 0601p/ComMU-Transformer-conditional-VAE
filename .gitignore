@@ -136,3 +136,19 @@ tmp*.py
 
 # shell script
 *.sh
+
+# dataset files
+dataset/output_npy
+dataset/*.zip
+dataset/__MACOSX
+
+# test files
+tmp_train_CPU.py
+# input, output files
+*.npy
+*.zip
+*.out
+*.pt
+*.yml
+*.log
+dataset/__MACOSX

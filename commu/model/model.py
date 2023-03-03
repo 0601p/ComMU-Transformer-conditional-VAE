@@ -603,7 +603,7 @@ class MemTransformerLM(nn.Module):
         new_mems = self._update_mems(hids, mems, mlen, qlen, reset_mems)
         return core_out, new_mems
 
-    def forward_generate(self, data, mems):
+    def forward_generate(self, data, mems, target):
 
         if mems is None:
             mems = self.init_mems(self.n_layer)
@@ -624,8 +624,10 @@ class MemTransformerLM(nn.Module):
             self.crit.out_projs[0],
         )
         logits = logits.view(tgt_len, batch_size, -1)
+        loss = self.crit(pred_hid.view(-1, pred_hid.size(-1)), target.view(-1))
+        loss = loss.view(tgt_len, -1)
 
-        return (logits, new_mems)
+        return (logits, new_mems, loss)
 
     def forward_generate_gumbel(self, data, temperature, mems):
 

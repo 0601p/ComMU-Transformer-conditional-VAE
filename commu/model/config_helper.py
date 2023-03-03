@@ -33,6 +33,18 @@ def train(cfg):
     cfg.TRAIN.weight_decay = 0.0
     return cfg
 
+def optim(cfg):
+    # config for optimizer - dynamic evaluation with RMSProp
+    cfg.OPTIM = CN()
+    cfg.OPTIM.lamb = 0.002      # decay parameter lambda ( dynamic evaluation )
+    cfg.OPTIM.lr = 0.00005      # learning rate eta ( dynamic evaluation )
+    cfg.OPTIM.epsilon = 0.00002 # stabilization parameter epsilon ( dynamic evaluation )
+    cfg.OPTIM.max_step = 100
+    cfg.OPTIM.batch_size = 64
+    cfg.OPTIM.seq_len = 128
+    cfg.OPTIM.device = 'gpu'
+    return cfg
+
 
 def init(cfg):
     # For initialization
@@ -54,6 +66,7 @@ def get_default_cfg_training():
     cfg = init(cfg)
     cfg = model(cfg)
     cfg = train(cfg)
+    cfg = optim(cfg)
     cfg.freeze()
     return cfg
 

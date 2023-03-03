@@ -11,6 +11,7 @@ from commu.midi_generator.container import TransXlInputData
 from commu.model.model import MemTransformerLM
 from commu.preprocessor.encoder import TOKEN_OFFSET
 from commu.preprocessor.utils.constants import DEFAULT_POSITION_RESOLUTION
+from commu.model.RMSProp_dynamic import RMSProp_dynamic
 
 
 class TeacherForceTask:
@@ -170,8 +171,9 @@ class TeacherForceTask:
 
 
 class InferenceTask:
-    def __init__(self, device: torch.device):
+    def __init__(self, device: torch.device, dynamic_eval_dir):
         self.device = device
+        self.dynamic_eval_dir = dynamic_eval_dir
 
     def __call__(
         self,
@@ -182,6 +184,10 @@ class InferenceTask:
         self.model = model
         self.input_data = input_data
         self.inference_cfg = inference_cfg
+        self.optimizer = RMSProp_dynamic(
+            inference_cfg.OPTIM, self.dynamic_eval_dir
+        )
+        
 
     def init_seq_and_mems(
         self, encoded_meta: List[int], num_conditional_tokens: int
@@ -192,7 +198,7 @@ class InferenceTask:
             :, np.newaxis
         ]
         context = torch.from_numpy(ctx).to(self.device).type(torch.long)
-        _, init_mems = self.model.forward_generate(context, mems=None)
+        _, init_mems, _ = self.model.forward_generate(context, mems=None)
         init_seq = seq + encoded_meta[:num_conditional_tokens]
         return init_seq, init_mems
 
@@ -201,9 +207,16 @@ class InferenceTask:
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         inp = np.array([seq[-1]], dtype=np.int32)[:, np.newaxis]
         input_token = torch.from_numpy(inp).to(self.device).type(torch.long)
-        ret = self.model.forward_generate(input_token, mems)
-        all_logits, mems = ret
+        target_token = torch.zeros_like(input_token).to(self.device)
+        target_token[:-1, :] = input_token[1:, :]
+        self.model.zero_grad()
+        ret = self.model.forward_generate(input_token, mems, target_token)
+        all_logits, mems, loss = ret
+        loss = loss[target_token != 0]
+        loss = loss.float().mean()
+        loss.backward()
         logits = all_logits[-1, 0][1:]
+        self.optimizer.step(self.model)
         return logits, mems
 
     def calc_probs(self, logits):
@@ -219,6 +232,21 @@ class InferenceTask:
 
         probs = F.pad(probs, [1, 0])
         return probs
+
+    def clip_decay(self):
+        lamb = self.optimizer.lamb
+        for name, param in self.model.named_parameters():
+            if self.device == torch.device('cuda'):
+                decratenp = self.optimizer.decrate[name].cpu().numpy()
+                ind = np.nonzero(decratenp>(1/lamb))
+                decratenp[ind] = (1/lamb)
+                self.optimizer.decrate[name] = torch.from_numpy(decratenp).type(torch.cuda.FloatTensor)
+
+            else:
+                decratenp = self.optimizer.decrate[name].numpy()
+                ind = np.nonzero(decratenp>(1/lamb))
+                decratenp[ind] = (1/lamb)
+                self.optimizer.decrate[name] = torch.from_numpy(decratenp).type(torch.FloatTensor)
 
     def apply_sampling(self, probs, wrong_tokens):
         _, top_idx = torch.topk(probs, self.input_data.top_k)
@@ -342,6 +370,7 @@ class InferenceTask:
         while idx != self.input_data.num_generate:
             with torch.no_grad():
                 logger.info("Generating the idx: " + str(idx + 1))
+                self.clip_decay()
                 seq, mems = self.init_seq_and_mems(encoded_meta, num_conditional_tokens)
                 seq = self.generate_sequence(seq, mems)
                 if seq is None:
