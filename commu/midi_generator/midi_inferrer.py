@@ -213,13 +213,15 @@ class InferenceTask:
         return logits, mems
     
     def update_params(self, seq: List[int], mems: torch.Tensor):
+        self.model.zero_grad()
         inp = np.array([seq[-2]], dtype=np.int32)[:, np.newaxis]
         input_token = torch.from_numpy(inp).to(self.device).type(torch.long)
-        target_token = np.array([seq[-1]], dtype=np.int32)[:, np.newaxis]
-        target_token = torch.from_numpy(inp).to(self.device).type(torch.long)
-        self.model.zero_grad()
-        loss, _ = self.model(input_token, target_token, None, mems)
-        loss.requires_grad_(True)
+        target = np.array([seq[-1]], dtype=np.int32)[:, np.newaxis]
+        target_token = torch.from_numpy(target).to(self.device).type(torch.long)
+        reset_mems = torch.BoolTensor([False])
+        loss, _ = self.model(input_token, target_token, reset_mems, mems)
+        loss = loss[target_token != 0]
+        loss = loss.float().mean()
         loss.backward()
         self.optimizer.update(self.model)
 
@@ -277,7 +279,6 @@ class InferenceTask:
                 break
 
             self.update_params(seq, mems)
-
             if teacher.next_tokens_forced:
                 next_token = teacher.next_tokens_forced.pop(0)
                 seq.append(next_token)
@@ -374,16 +375,16 @@ class InferenceTask:
         idx = 0
         sequences = []
         while idx != self.input_data.num_generate:
-            with torch.no_grad():
-                logger.info("Generating the idx: " + str(idx + 1))
-                self.clip_decay()
-                seq, mems = self.init_seq_and_mems(encoded_meta, num_conditional_tokens)
-                seq = self.generate_sequence(seq, mems)
-                if seq is None:
-                    continue
-                if not self.validate_generated_sequence(seq):
-                    logger.error("Empty sequence generated")
-                    continue
+            logger.info("Generating the idx: " + str(idx + 1))
+            self.optimizer.reset(self.model)
+            self.clip_decay()
+            seq, mems = self.init_seq_and_mems(encoded_meta, num_conditional_tokens)
+            seq = self.generate_sequence(seq, mems)
+            if seq is None:
+                continue
+            if not self.validate_generated_sequence(seq):
+                logger.error("Empty sequence generated")
+                continue
             sequences.append(seq)
             idx += 1
         return sequences

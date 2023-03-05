@@ -30,6 +30,10 @@ class RMSProp_dynamic:
         for name, param in model.named_parameters():
             dW = self.lamb*self.decrate[name]*(self.data0[name]-param.data)-self.lr*param.grad.data/(self.MS[name]+self.epsilon)
             param.data+=dW
+    
+    def reset(self, model):
+        for name, param in model.named_parameters():
+            param.data = self.data0[name]
 
 
 
