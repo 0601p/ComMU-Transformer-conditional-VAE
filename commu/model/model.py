@@ -3,6 +3,34 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def shift_tokens(inp):
+    inp0 = inp[:, :, 0]
+    metaidx = (inp0 >= 560 & inp0 <= 729)
+    posidx = (inp0 >= 432 & inp0 <= 559)
+    inp0[metaidx] -= 557
+    inp0[posidx] -= 260
+
+    inp1 = inp[:, :, 1]
+    chordidx = (inp1 >= 195 & inp1 <= 303)
+    velidx = (inp1 >= 131 & inp1 <= 194)
+    inp1[chordidx] -= 194
+    inp1[velidx] -= 21
+
+    inp2 = inp[:, :, 2]
+    pitchidx = (inp2 >= 3 & inp2 <= 130)
+    inp2[pitchidx] -= 2
+
+    inp3 = inp[:, :, 3]
+    duridx = (inp3 >= 304 & inp3 <= 431)
+    inp2[duridx] -= 303
+
+    inp[:, :, 0] = inp0
+    inp[:, :, 1] = inp1
+    inp[:, :, 2] = inp2
+    inp[:, :, 3] = inp3
+    return inp
+
+
 class ProjectedAdaptiveLogSoftmax(nn.Module):
     def __init__(self, n_token, d_embed, d_proj, cutoffs=None, keep_order=False):
         super(ProjectedAdaptiveLogSoftmax, self).__init__()
@@ -129,6 +157,46 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     nll[offset: offset + logprob_i.size(0)].copy_(-logprob_i)
 
                 offset += logprob_i.size(0)
+
+        return nll
+
+
+class GroupLogSoftmax(nn.Module):
+    def __init__(self, n_tokens, d_proj, keep_order=False):
+        super(GroupLogSoftmax, self).__init__()
+
+        self.n_tokens = n_tokens
+        self.d_proj = d_proj
+
+        self.out_layers = nn.ModuleList([nn.Linear(d_proj, n_token) for n_token in self.n_tokens])
+
+        self.keep_order = keep_order
+
+    def _compute_logit(self, hidden):
+        logit = (self.out_layers[0](hidden),
+                 self.out_layers[1](hidden),
+                 self.out_layers[2](hidden),
+                 self.out_layers[3](hidden))
+        return logit
+
+    def forward(self, hidden, target):
+        """
+            hidden :: [len*bsz x d_proj]
+            target :: [len*bsz]
+        """
+
+        target = shift_tokens(target)
+
+        if hidden.size(0) != target.size(0):
+            raise RuntimeError(
+                "Input and target should have the same size " "in the batch dimension."
+            )
+
+        logit = self._compute_logit(hidden)
+        nll = ((-F.log_softmax(logit[0], dim=-1).gather(1, target[:, :, 0].unsqueeze(1)).squeeze(1)) +
+               (-F.log_softmax(logit[1], dim=-1).gather(1, target[:, :, 1].unsqueeze(1)).squeeze(1)) +
+               (-F.log_softmax(logit[2], dim=-1).gather(1, target[:, :, 2].unsqueeze(1)).squeeze(1)) +
+               (-F.log_softmax(logit[3], dim=-1).gather(1, target[:, :, 3].unsqueeze(1)).squeeze(1))) / 4
 
         return nll
 
@@ -420,6 +488,51 @@ class AdaptiveEmbedding(nn.Module):
         return embed
 
 
+class GroupEmbedding(nn.Module):
+    def __init__(self, n_tokens, d_embed, d_proj):
+        """
+
+        :param n_tokens: number of tokens in vocab
+        :param d_embed: dimension of embedding
+        :param d_proj: dimension of embedding projection (unused here since d_proj = d_model)
+        """
+
+        super(GroupEmbedding, self).__init__()
+
+        self.n_tokens = n_tokens
+        self.d_embed = d_embed
+        self.d_proj = d_proj
+
+        self.embed_arr = nn.ModuleList([nn.Embedding(n_token, d_embed, padding_idx=0) for n_token in self.n_tokens])
+        self.emb_scale = d_proj ** 0.5
+
+        self.linear_1 = nn.Linear(d_embed, d_proj)
+        self.linear_2 = nn.Linear(2 * d_embed, d_proj)
+        self.linear_4 = nn.Linear(4 * d_embed, d_proj)
+
+    def forward(self, inp):
+        # inp : (seq_len, batch, 4)
+
+        inp = shift_tokens(inp)
+
+        # embedding tokens
+        embed0 = self.embed_arr[0](inp[:, :, 0])
+        embed1 = self.embed_arr[1](inp[:, :, 1])
+        embed2 = self.embed_arr[2](inp[:, :, 2])
+        embed3 = self.embed_arr[3](inp[:, :, 3])
+
+        embed01 = torch.cat((embed0, embed1), dim=-1)
+        embed0123 = torch.cat((embed0, embed1, embed2, embed3), dim = -1)
+
+        mask1 = inp[:, :, 1] == 0  # only use embed0
+        mask2 = (inp[:, :, 2] == 0) & ~mask1  # use embed0, embed1
+        mask4 = ~ (mask1 | mask2)
+
+        out = mask1 * self.linear1(embed0) + mask2 * self.linear_2(embed01) + mask4 * self.linear_4(embed0123)
+
+        return out
+
+
 class MemTransformerLM(nn.Module):
     def __init__(
             self,
@@ -433,7 +546,7 @@ class MemTransformerLM(nn.Module):
         d_inner = cfg.MODEL.inner_size
         dropout = cfg.MODEL.dropout
         dropatt = cfg.MODEL.attention_dropout
-        d_embed = cfg.MODEL.units
+        d_embed = cfg.MODEL.units // 4
         tgt_len = cfg.TRAIN.tgt_length
         mem_len = cfg.TRAIN.mem_length
         same_length = cfg.MODEL.same_length
@@ -441,15 +554,14 @@ class MemTransformerLM(nn.Module):
 
         super(MemTransformerLM, self).__init__()
         self.cfg = cfg
-        self.n_token = len(vocab)
+        self.n_tokens = [298, 174, 129, 129]
         d_embed = d_model if d_embed is None else d_embed
         self.d_embed = d_embed
         self.d_model = d_model
         self.n_head = n_head
         self.d_head = d_head
 
-        self.word_emb = AdaptiveEmbedding(
-            self.n_token, d_embed, d_model)
+        self.word_emb = GroupEmbedding(self.n_tokens, d_embed, d_model)
 
         self.drop = nn.Dropout(dropout)
         self.n_layer = n_layer
@@ -473,12 +585,7 @@ class MemTransformerLM(nn.Module):
                     dropatt=dropatt,
                 )
             )
-        self.crit = ProjectedAdaptiveLogSoftmax(
-            self.n_token, d_embed, d_model
-        )
-
-        for i in range(len(self.crit.out_layers)):
-            self.crit.out_layers[i].weight = self.word_emb.emb_layers[i].weight
+        self.crit = GroupLogSoftmax(self.n_tokens, d_model)
 
         self.same_length = same_length
         self.clamp_len = clamp_len
@@ -615,65 +722,54 @@ class MemTransformerLM(nn.Module):
 
         pred_hid = hidden[-tgt_len:]
 
-        assert self.crit.n_clusters == 0
-
-        logits = self.crit._compute_logit(
-            pred_hid.view(-1, pred_hid.size(-1)),
-            self.crit.out_layers[0].weight,
-            self.crit.out_layers[0].bias,
-            self.crit.out_projs[0],
-        )
-        logits = logits.view(tgt_len, batch_size, -1)
+        logits = self.crit._compute_logit(pred_hid)
 
         return (logits, new_mems)
 
-    def forward_generate_gumbel(self, data, temperature, mems):
-
-        from torch.autograd import Variable
-
-        def sample_gumbel(shape, eps=1e-20):
-            U = torch.rand(shape).cuda()
-            return -Variable(torch.log(-torch.log(U + eps) + eps))
-
-        def gumbel_softmax_sample(logits, temperature):
-            y = logits + sample_gumbel(logits.size())
-            return F.softmax(y / temperature, dim=-1)
-
-        def gumbel_softmax(logits, temperature):
-            """
-            input: [*, n_class]
-            return: [*, n_class] an one-hot vector
-            """
-            y = gumbel_softmax_sample(logits, temperature)
-            shape = y.size()
-            _, ind = y.max(dim=-1)
-            y_hard = torch.zeros_like(y).view(-1, shape[-1])
-            y_hard.scatter_(1, ind.view(-1, 1), 1)
-            y_hard = y_hard.view(*shape)
-            return (y_hard - y).detach() + y
-
-        if mems is None:
-            mems = self.init_mems(self.n_layer)
-
-        tgt_len = data.size(0)
-        batch_size = data.size(1)
-        hidden, new_mems = self._forward(data, None, mems=mems)
-
-        pred_hid = hidden[-tgt_len:]
-
-        assert self.crit.n_clusters == 0
-
-        logits = self.crit._compute_logit(
-            pred_hid.view(-1, pred_hid.size(-1)),
-            self.crit.out_layers[0].weight,
-            self.crit.out_layers[0].bias,
-            self.crit.out_projs[0],
-        )
-        logits = gumbel_softmax(
-            logits.view(tgt_len, batch_size, -1), temperature=temperature
-        )
-
-        return (logits, new_mems)
+    # def forward_generate_gumbel(self, data, temperature, mems):
+    #
+    #     from torch.autograd import Variable
+    #
+    #     def sample_gumbel(shape, eps=1e-20):
+    #         U = torch.rand(shape).cuda()
+    #         return -Variable(torch.log(-torch.log(U + eps) + eps))
+    #
+    #     def gumbel_softmax_sample(logits, temperature):
+    #         y = logits + sample_gumbel(logits.size())
+    #         return F.softmax(y / temperature, dim=-1)
+    #
+    #     def gumbel_softmax(logits, temperature):
+    #         """
+    #         input: [*, n_class]
+    #         return: [*, n_class] an one-hot vector
+    #         """
+    #         y = gumbel_softmax_sample(logits, temperature)
+    #         shape = y.size()
+    #         _, ind = y.max(dim=-1)
+    #         y_hard = torch.zeros_like(y).view(-1, shape[-1])
+    #         y_hard.scatter_(1, ind.view(-1, 1), 1)
+    #         y_hard = y_hard.view(*shape)
+    #         return (y_hard - y).detach() + y
+    #
+    #     if mems is None:
+    #         mems = self.init_mems(self.n_layer)
+    #
+    #     tgt_len = data.size(0)
+    #     batch_size = data.size(1)
+    #     hidden, new_mems = self._forward(data, None, mems=mems)
+    #
+    #     pred_hid = hidden[-tgt_len:]
+    #
+    #     assert self.crit.n_clusters == 0
+    #
+    #     logits = self.crit._compute_logit(
+    #         pred_hid
+    #     )
+    #     logits = gumbel_softmax(
+    #         logits.view(tgt_len, batch_size, -1), temperature=temperature
+    #     )
+    #
+    #     return (logits, new_mems)
 
     def forward(self, data, target, reset_mems, mems):
         # nn.DataParallel does not allow size(0) tensors to be broadcasted.
@@ -687,7 +783,6 @@ class MemTransformerLM(nn.Module):
         hidden, new_mems = self._forward(data, reset_mems, mems=mems)
 
         pred_hid = hidden[-tgt_len:]
-        loss = self.crit(pred_hid.view(-1, pred_hid.size(-1)), target.view(-1))
-        loss = loss.view(tgt_len, -1)
+        loss = self.crit(pred_hid, target)
 
         return (loss, new_mems)

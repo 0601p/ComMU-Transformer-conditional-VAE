@@ -4,10 +4,10 @@ from yacs.config import CfgNode as CN
 def model(cfg):
     # For model
     cfg.MODEL = CN()
-    cfg.MODEL.num_layers = 6
+    cfg.MODEL.num_layers = 12  # 6
     cfg.MODEL.num_heads = 10
-    cfg.MODEL.units = 500
-    cfg.MODEL.inner_size = 1000
+    cfg.MODEL.units = 1000  # 500
+    cfg.MODEL.inner_size = 2000  # 1000
     cfg.MODEL.dropout = 0.1
     cfg.MODEL.attention_dropout = 0.1
     cfg.MODEL.clamp_len = -1
