@@ -509,6 +509,7 @@ class GroupEmbedding(nn.Module):
         self.linear_1 = nn.Linear(d_embed, d_proj)
         self.linear_2 = nn.Linear(2 * d_embed, d_proj)
         self.linear_4 = nn.Linear(4 * d_embed, d_proj)
+        self.emb_scale = d_proj ** 0.5
 
     def forward(self, inp):
         # inp : (seq_len, batch, 4)
@@ -529,7 +530,7 @@ class GroupEmbedding(nn.Module):
         mask4 = ~ (mask1 | mask2)
 
         out = mask1 * self.linear1(embed0) + mask2 * self.linear_2(embed01) + mask4 * self.linear_4(embed0123)
-
+        out.mul_(self.emb_scale)
         return out
 
 
