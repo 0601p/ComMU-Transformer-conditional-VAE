@@ -145,7 +145,7 @@ def train():
             ret = model(data, target, reset_mems, mems[i])
             loss, mems[i] = ret
             
-            loss = loss * (target != dataset.vocab.pad_id)
+            loss = loss[target != dataset.vocab.pad_id]
             loss = loss.float().mean() / cfg.TRAIN.batch_chunk
             log_train_loss += (
                     loss.item()
