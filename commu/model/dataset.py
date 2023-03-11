@@ -253,16 +253,17 @@ class ComMU_Grouped_Dataset:
         # Insert start tokens
         print("USING PAD TOKEN AS START!")
         insert_token = self._vocab.pad_id  # pad as a start token
+        start_tokens = np.array([[insert_token, insert_token, insert_token, insert_token]])
         self._train_data = [
-            torch.from_numpy(np.insert(arr, 0, insert_token))
+            torch.from_numpy(np.insert(arr, 0, start_tokens, axis=0))
             for arr in self._train_data
         ]
         self._valid_data = [
-            torch.from_numpy(np.insert(arr, 0, insert_token))
+            torch.from_numpy(np.insert(arr, 0, start_tokens, axis=0))
             for arr in self._valid_data
         ]
         self._test_data = [
-            torch.from_numpy(np.insert(arr, 0, insert_token))
+            torch.from_numpy(np.insert(arr, 0, insert_token, axis=0))
             for arr in self._test_data
         ]
 

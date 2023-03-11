@@ -4,7 +4,7 @@ from yacs.config import CfgNode as CN
 def model(cfg):
     # For model
     cfg.MODEL = CN()
-    cfg.MODEL.num_layers = 12  # 6
+    cfg.MODEL.num_layers = 6
     cfg.MODEL.num_heads = 10
     cfg.MODEL.units = 1000  # 500
     cfg.MODEL.inner_size = 2000  # 1000
@@ -20,7 +20,7 @@ def train(cfg):
     cfg.TRAIN = CN()
     cfg.TRAIN.batch_size = 256
     cfg.TRAIN.batch_chunk = 4
-    cfg.TRAIN.tgt_length = 128
+    cfg.TRAIN.tgt_length = 64  # 128
     cfg.TRAIN.mem_length = 1024
     cfg.TRAIN.seed = 1111
     cfg.TRAIN.lr = 0.004
@@ -43,7 +43,7 @@ def init(cfg):
     # For evaluation
     cfg.EVALUATE = CN()
     cfg.EVALUATE.batch_size = 10
-    cfg.EVALUATE.tgt_length = 128
+    cfg.EVALUATE.tgt_length = 64  # 128
     cfg.EVALUATE.mem_length = 2048
 
     return cfg
@@ -64,7 +64,7 @@ def get_default_cfg_inference():
 
     # # Model related parameters
     cfg.MODEL = CN()
-    cfg.MODEL.memory_length = 4146
+    cfg.MODEL.memory_length = 2048  # 4146
     cfg.MODEL.device = "gpu"
     # Sampling related parameters
     cfg.SAMPLING = CN()

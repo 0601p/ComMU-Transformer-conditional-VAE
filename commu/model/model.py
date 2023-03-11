@@ -5,30 +5,32 @@ import torch.nn.functional as F
 
 def shift_tokens(inp):
     inp0 = inp[:, :, 0]
-    metaidx = (inp0 >= 560 & inp0 <= 729)
-    posidx = (inp0 >= 432 & inp0 <= 559)
+    metaidx = (inp0 >= 560) & (inp0 <= 729)
+    posidx = (inp0 >= 432) & (inp0 <= 559)
     inp0[metaidx] -= 557
     inp0[posidx] -= 260
 
     inp1 = inp[:, :, 1]
-    chordidx = (inp1 >= 195 & inp1 <= 303)
-    velidx = (inp1 >= 131 & inp1 <= 194)
+    chordidx = (inp1 >= 195) & (inp1 <= 303)
+    velidx = (inp1 >= 131) & (inp1 <= 194)
     inp1[chordidx] -= 194
     inp1[velidx] -= 21
 
     inp2 = inp[:, :, 2]
-    pitchidx = (inp2 >= 3 & inp2 <= 130)
+    pitchidx = (inp2 >= 3) & (inp2 <= 130)
     inp2[pitchidx] -= 2
 
     inp3 = inp[:, :, 3]
-    duridx = (inp3 >= 304 & inp3 <= 431)
-    inp2[duridx] -= 303
+    duridx = (inp3 >= 304) & (inp3 <= 431)
+    inp3[duridx] -= 303
 
-    inp[:, :, 0] = inp0
-    inp[:, :, 1] = inp1
-    inp[:, :, 2] = inp2
-    inp[:, :, 3] = inp3
-    return inp
+    ret = torch.zeros_like(inp, device = inp.device)
+    ret[:, :, 0] = inp0
+    ret[:, :, 1] = inp1
+    ret[:, :, 2] = inp2
+    ret[:, :, 3] = inp3
+
+    return ret
 
 
 class ProjectedAdaptiveLogSoftmax(nn.Module):
@@ -193,10 +195,12 @@ class GroupLogSoftmax(nn.Module):
             )
 
         logit = self._compute_logit(hidden)
-        nll = ((-F.log_softmax(logit[0], dim=-1).gather(1, target[:, :, 0].unsqueeze(1)).squeeze(1)) +
-               (-F.log_softmax(logit[1], dim=-1).gather(1, target[:, :, 1].unsqueeze(1)).squeeze(1)) +
-               (-F.log_softmax(logit[2], dim=-1).gather(1, target[:, :, 2].unsqueeze(1)).squeeze(1)) +
-               (-F.log_softmax(logit[3], dim=-1).gather(1, target[:, :, 3].unsqueeze(1)).squeeze(1))) / 4
+        nll = torch.cat((
+            (-F.log_softmax(logit[0], dim=-1).gather(-1, target[:, :, 0].unsqueeze(2))),
+            (-F.log_softmax(logit[1], dim=-1).gather(-1, target[:, :, 1].unsqueeze(2))),
+            (-F.log_softmax(logit[2], dim=-1).gather(-1, target[:, :, 2].unsqueeze(2))),
+            (-F.log_softmax(logit[3], dim=-1).gather(-1, target[:, :, 3].unsqueeze(2)))), dim = -1
+        )
 
         return nll
 
@@ -503,7 +507,7 @@ class GroupEmbedding(nn.Module):
         self.d_embed = d_embed
         self.d_proj = d_proj
 
-        self.embed_arr = nn.ModuleList([nn.Embedding(n_token, d_embed, padding_idx=0) for n_token in self.n_tokens])
+        self.embed_arr = nn.ModuleList([nn.Embedding(n_token, d_embed) for n_token in self.n_tokens])
         self.emb_scale = d_proj ** 0.5
 
         self.linear_1 = nn.Linear(d_embed, d_proj)
@@ -529,8 +533,11 @@ class GroupEmbedding(nn.Module):
         mask2 = (inp[:, :, 2] == 0) & ~mask1  # use embed0, embed1
         mask4 = ~ (mask1 | mask2)
 
-        out = mask1 * self.linear1(embed0) + mask2 * self.linear_2(embed01) + mask4 * self.linear_4(embed0123)
-        out.mul_(self.emb_scale)
+        l1 = self.linear_1(embed0) * mask1.unsqueeze(2)
+        l2 = self.linear_2(embed01) * mask2.unsqueeze(2)
+        l4 = self.linear_4(embed0123) * mask4.unsqueeze(2)
+        out = l1 + l2 + l4
+        out *= self.emb_scale
         return out
 
 
@@ -555,7 +562,7 @@ class MemTransformerLM(nn.Module):
 
         super(MemTransformerLM, self).__init__()
         self.cfg = cfg
-        self.n_tokens = [298, 174, 129, 129]
+        self.n_tokens = [300, 174, 129, 129]
         d_embed = d_model if d_embed is None else d_embed
         self.d_embed = d_embed
         self.d_model = d_model
