@@ -19,65 +19,13 @@ and additional document and dataset are showed below.
     pip install -r requirements.txt
     ```
 ### Download the Data
-1. download csv with meta information and zipped raw midi files.
-   - csv file consists of meta information of each midi file.
-2. unzip midifiles(`commu_midi.tar`).
-    ```
-    $ cd ComMU-code
-    $ tar -xvf ./dataset/commu_midi.tar -C ./dataset/
-    ```
-    and if the project tree looks like this, it is ready for preprocessing. 
-    ```
-    .
-    ├── commu_meta.csv
-    └── commu_midi
-        └── train
-            └── raw
-                └── midifiles(.mid)
-        └── val
-            └── raw
-                └── midifiles(.mid)
-    ``` 
-
-## Preprocessing
-- ComMU dataset can be preprocessed by specifying the root directory and csv file path containing metadata.
-    ```
-    $ python3 preprocess.py --root_dir ./dataset/commu_midi --csv_path ./dataset/commu_meta.csv
-    ```
-
-- After successful preprocessing, project tree would be like this,
-    ```
-    .
-    ├── commu_meta.csv
-    └── commu_midi
-        ├── train
-        │   ├── raw
-        │   ├── augmented_tmp
-        │   ├── augmented
-        │   └── npy_tmp
-        ├── val
-        │   ├── raw
-        │   ├── augmented_tmp
-        │   ├── augmented
-        │   └── npy_tmp
-        └── output_npy
-            ├── input_train.npy
-            ├── input_val.npy
-            ├── target_train.npy
-            └── target_val.npy
-    ```
-- Training input is related to `output_npy` directory. it contains input/target array splitted into training/validation.
-- here is the additional explanation of train/val directory: 
-  - `raw` : splitted raw midi file
-  - `augmented` : augmented data by key_switch and bpm change. 
-    - file name looks like this, representing audio_key and bpm info : `commu11144_gmajor_70.mid`
-  - `augmented_tmp` : contains temporary augmented data.
-  - `npy_tmp` : temporary numpy array containing Encoded Output. categorized into numbered subdirectories(ex) 0000~0015), and each directory has numpy array of each midi data.
-
+```
+cd dataset && ./download.sh && cd ..
+```
 
 ## Training
 ```
-$ python3 -m torch.distributed.launch --nproc_per_node=4 ./train.py --data_dir ./dataset/commu_midi/output_npy --work_dir {./working_direcoty}
+python3 -m torch.distributed.launch --nproc_per_node=2 ./train_grouped.py --data_dir ./dataset/output_npy --work_dir ./workdir
 ```
 
 ## Generating

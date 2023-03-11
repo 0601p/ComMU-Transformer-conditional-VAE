@@ -135,7 +135,6 @@ dmypy.json
 tmp*.py
 
 # shell script
-*.sh
 
 *.zip
 *.npy
