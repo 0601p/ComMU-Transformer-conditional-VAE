@@ -17,7 +17,6 @@ class TeacherForceTask:
     def __init__(self, input_data):
         self.input_data = input_data
         self.next_tokens_forced = []
-        self.wrong_tokens = []
         self.no_sequence_appended = False
         self.is_incomplete = input_data.num_measures % 4 != 0
         self.incomplete_filled = not self.is_incomplete
@@ -124,16 +123,13 @@ class TeacherForceTask:
         self.next_tokens_forced.append(next_chord_tokens)
         self.chord_position.pop(0)
         self.inter_chord_flags.pop(0)
-        self.wrong_tokens = []
 
     def teach_chord_position(self):
         next_position_token = self.chord_position[0]
         self.next_tokens_forced.append(next_position_token)
-        self.wrong_tokens = []
 
     def teach_wrong_chord_token(self, wrong_token):
         self.no_sequence_appended = True
-        self.wrong_tokens.append(wrong_token)
 
     def teach_remnant_chord(self):
         token = self.chord_position[0] if self.inter_chord_flags[0] else TOKEN_OFFSET.BAR.value
@@ -184,12 +180,12 @@ class InferenceTask:
         self.inference_cfg = inference_cfg
 
     def init_seq_and_mems(
-        self, encoded_meta: List[int], num_conditional_tokens: int
+        self, encoded_meta_in: List[int], num_conditional_tokens: int
     ) -> Tuple[List[int], torch.Tensor]:
-
-        seq = [0]
+        encoded_meta = [[token, 0, 0, 0] for token in encoded_meta_in]
+        seq = [[0, 0, 0, 0]]
         ctx = np.array(seq + encoded_meta[: num_conditional_tokens - 1], dtype=np.int32)[
-            :, np.newaxis
+            :, np.newaxis, :
         ]
         context = torch.from_numpy(ctx).to(self.device).type(torch.long)
         _, init_mems = self.model.forward_generate(context, mems=None)
@@ -199,42 +195,67 @@ class InferenceTask:
     def calc_logits_and_mems(
         self, seq: List[int], mems: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        inp = np.array([seq[-1]], dtype=np.int32)[:, np.newaxis]
+        inp = np.array([seq[-1]], dtype=np.int32)[:, np.newaxis, :]
         input_token = torch.from_numpy(inp).to(self.device).type(torch.long)
         ret = self.model.forward_generate(input_token, mems)
         all_logits, mems = ret
-        logits = all_logits[-1, 0][1:]
+        logits = [logit[-1, 0][1:] for logit in all_logits]
         return logits, mems
 
     def calc_probs(self, logits):
         # Handle temp 0 (argmax) case
-        if self.input_data.temperature == 0:
-            probs = torch.zeros_like(logits)
-            probs[logits.argmax()] = 1.0
-        else:
-            # Apply temperature spec
-            logits /= self.input_data.temperature
-            # Compute softmax
-            probs = F.softmax(logits, dim=-1)
+        probs = []
+        for i in range(4):
+            if self.input_data.temperature == 0:
+                prob = torch.zeros_like(logits[i])
+                prob[logits[i].argmax()] = 1.0
+            else:
+                # Apply temperature spec
+                logits[i] /= self.input_data.temperature
+                # Compute softmax
+                prob = F.softmax(logits[i], dim=-1)
+            probs.append(F.pad(prob, [1, 0]))
 
-        probs = F.pad(probs, [1, 0])
         return probs
 
-    def apply_sampling(self, probs, wrong_tokens):
-        _, top_idx = torch.topk(probs, self.input_data.top_k)
-        mask = torch.zeros_like(probs)
-        mask[top_idx] = 1.0
-        if wrong_tokens:
-            for w in wrong_tokens:
-                mask[w] = 0.0
-        probs *= mask
-        probs /= torch.sum(probs)
+    def apply_sampling(self, probs):
+        for prob in probs:
+            _, top_idx = torch.topk(prob, self.input_data.top_k)
+            mask = torch.zeros_like(prob)
+            mask[top_idx] = 1.0
+            prob *= mask
+            prob /= torch.sum(prob)
         return probs
 
     def infer_token(self, probs):
-        token = torch.multinomial(probs, 1)
-        token = int(token.item())
-        return token
+        tokens = []
+        for prob in probs:
+            token = torch.multinomial(prob, 1)
+            tokens.append(int(token.item()))
+        return tokens
+
+    def shift_token(self, tokens):
+        assert tokens[0] <= 299
+        if tokens[0] >= 3 and tokens[0] <= 171:
+            tokens[0] += 557
+        elif tokens[0] >= 172 and tokens[0] <= 299:
+            tokens[0] += 260
+        
+        assert tokens[1] <= 173
+        if tokens[1] >= 1 and tokens[1] <= 109:
+            tokens[1] += 194
+        elif tokens[1] >= 110 and tokens[1] <= 173:
+            tokens[1] += 21
+        
+        assert tokens[2] <= 128
+        if tokens[2] >= 1 and tokens[2] <= 128:
+            tokens[2] += 2
+        
+        assert tokens[3] <= 128
+        if tokens[3] >= 1 and tokens[3] <= 128:
+            tokens[3] += 303
+        
+        return tokens
 
     def generate_sequence(self, seq, mems):
         logits = None
@@ -260,7 +281,7 @@ class InferenceTask:
                 logits, mems = self.calc_logits_and_mems(seq, mems)
 
             probs = self.calc_probs(logits)
-            probs = self.apply_sampling(probs, teacher.wrong_tokens)
+            probs = self.apply_sampling(probs)
 
             # teacher forcing
             # in case with incomplete measure, trigger a flag after second bar token
@@ -285,6 +306,7 @@ class InferenceTask:
             # teacher forcing followed by token inference so that we can check if the wrong token was generated
             try:
                 token = self.infer_token(probs)
+                token = self.shift_token(token)
             except RuntimeError as e:
                 logger.error(f"Sampling Error: {e}")
                 seq = None
