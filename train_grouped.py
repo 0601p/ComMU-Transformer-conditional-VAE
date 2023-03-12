@@ -98,8 +98,8 @@ def evaluate(eval_iter):
             ret = model(data, target, None, mems)
             loss, mems = ret
             loss = loss[target != dataset.vocab.pad_id]
-            loss = loss.mean()
-            total_nll += batch_token_num * loss.float().item()
+            loss = loss.sum()
+            total_nll += loss.float().item()
             total_token_num += batch_token_num
 
     eval_model.reset_length(cfg.TRAIN.tgt_length, cfg.TRAIN.mem_length)

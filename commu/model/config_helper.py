@@ -6,7 +6,7 @@ def model(cfg):
     cfg.MODEL = CN()
     cfg.MODEL.num_layers = 6
     cfg.MODEL.num_heads = 10
-    cfg.MODEL.units = 1000  # 500
+    cfg.MODEL.units = 1200  # 500
     cfg.MODEL.inner_size = 2000  # 1000
     cfg.MODEL.dropout = 0.1
     cfg.MODEL.attention_dropout = 0.1
@@ -19,17 +19,17 @@ def train(cfg):
     # For training
     cfg.TRAIN = CN()
     cfg.TRAIN.batch_size = 256
-    cfg.TRAIN.batch_chunk = 4
-    cfg.TRAIN.tgt_length = 64  # 128
+    cfg.TRAIN.batch_chunk = 2
+    cfg.TRAIN.tgt_length = 48  # 128
     cfg.TRAIN.mem_length = 1024
     cfg.TRAIN.seed = 1111
-    cfg.TRAIN.lr = 0.0004
-    cfg.TRAIN.lr_min = 0.00001
+    cfg.TRAIN.lr = 0.002
+    cfg.TRAIN.lr_min = 0.00005
     cfg.TRAIN.warmup_step = 100
     cfg.TRAIN.clip = 1.0
     cfg.TRAIN.max_step = 20000
     cfg.TRAIN.log_interval = 100
-    cfg.TRAIN.eval_interval = 1000
+    cfg.TRAIN.eval_interval = 500 # 1000
     cfg.TRAIN.weight_decay = 0.0
     return cfg
 
@@ -43,7 +43,7 @@ def init(cfg):
     # For evaluation
     cfg.EVALUATE = CN()
     cfg.EVALUATE.batch_size = 10
-    cfg.EVALUATE.tgt_length = 64  # 128
+    cfg.EVALUATE.tgt_length = 48  # 128
     cfg.EVALUATE.mem_length = 2048
 
     return cfg
