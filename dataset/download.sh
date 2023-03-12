@@ -1,6 +1,6 @@
 #!/bin/bash
 
-FILEID="1422RU0lCu9ylLtOL9opI-a32oxJSoNeD"
+FILEID="1fBcerdcidxcKVDztHqUswhIQzx-py7Q1"
 FILENAME="output_npy.zip"
 
 curl -sc ~/cookie.txt "https://drive.google.com/uc?export=download&id=${FILEID}" > /dev/null

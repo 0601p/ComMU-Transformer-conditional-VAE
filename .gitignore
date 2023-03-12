@@ -138,3 +138,6 @@ tmp*.py
 
 *.zip
 *.npy
+*.mid
+*.yml
+*.pt

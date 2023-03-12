@@ -56,37 +56,37 @@ class TeacherForceTask:
         """
         return seq[-2] == TOKEN_OFFSET.BAR.value and seq[-1] == TOKEN_OFFSET.POSITION.value
 
-    def check_one_chord_per_bar_case(self, seq):
-        """
-        case: one chord per bar
-        """
-        return (
-            self.check_remnant_chord()
-            and self.incomplete_filled
-            and self.check_length_fit()
-            and self.check_position_fit(seq)
-        )
+    # def check_one_chord_per_bar_case(self, seq):
+    #     """
+    #     case: one chord per bar
+    #     """
+    #     return (
+    #         self.check_remnant_chord()
+    #         and self.incomplete_filled
+    #         and self.check_length_fit()
+    #         and self.check_position_fit(seq)
+    #     )
 
-    def check_mul_chord_per_bar_case(self, seq):
-        """
-        case: multiple chords per bar
-        """
-        is_first_position_chord = (
-            self.check_remnant_chord()
-            and self.incomplete_filled
-            and not self.check_length_fit()
-            and self.check_position_fit(seq)
-        )
+    # def check_mul_chord_per_bar_case(self, seq):
+    #     """
+    #     case: multiple chords per bar
+    #     """
+    #     is_first_position_chord = (
+    #         self.check_remnant_chord()
+    #         and self.incomplete_filled
+    #         and not self.check_length_fit()
+    #         and self.check_position_fit(seq)
+    #     )
 
-        is_inter_position_chord = (
-            self.check_remnant_chord()
-            and self.incomplete_filled
-            and not self.check_length_fit()
-            and not self.check_position_fit(seq)
-            and seq[-1] == self.chord_position[0]
-            and self.inter_chord_flags[0]
-        )
-        return is_first_position_chord or is_inter_position_chord
+    #     is_inter_position_chord = (
+    #         self.check_remnant_chord()
+    #         and self.incomplete_filled
+    #         and not self.check_length_fit()
+    #         and not self.check_position_fit(seq)
+    #         and seq[-1] == self.chord_position[0]
+    #         and self.inter_chord_flags[0]
+    #     )
+    #     return is_first_position_chord or is_inter_position_chord
 
     def check_chord_position_passed(self, token):
         """
@@ -111,33 +111,46 @@ class TeacherForceTask:
 
     def check_wrong_bar_token_generated(self, token):
         return not self.check_remnant_chord() and token == TOKEN_OFFSET.BAR.value
+    
+    def check_bar_generated(self, token):
+        return token == TOKEN_OFFSET.BAR.value
 
-    def teach_first_position(self) -> None:
-        """
-        teach 1/128 position right after a bar token
-        """
-        self.next_tokens_forced.append(int(TOKEN_OFFSET.POSITION.value))
+    def teach_bar(self):
+        token = TOKEN_OFFSET.BAR.value
+        self.next_tokens_forced.append([token, 0, 0, 0])
+        self.teach_chord_position()
 
-    def teach_chord_token(self):
-        next_chord_tokens = self.chord_token.pop(0)
-        self.next_tokens_forced.append(next_chord_tokens)
-        self.chord_position.pop(0)
-        self.inter_chord_flags.pop(0)
+    # def teach_first_position(self) -> None:
+    #     """
+    #     teach 1/128 position right after a bar token
+    #     """
+    #     self.next_tokens_forced.append(int(TOKEN_OFFSET.POSITION.value))
+
+    # def teach_chord_token(self):
+    #     next_chord_tokens = self.chord_token.pop(0)
+    #     self.next_tokens_forced.append(next_chord_tokens)
+    #     self.chord_position.pop(0)
+    #     self.inter_chord_flags.pop(0)
 
     def teach_chord_position(self):
-        next_position_token = self.chord_position[0]
-        self.next_tokens_forced.append(next_position_token)
+        next_chord_tokens = self.chord_token.pop(0)
+        next_position_token = self.chord_position.pop(0)
+        self.inter_chord_flags.pop(0)
+        self.next_tokens_forced.append([next_position_token, next_chord_tokens, 0, 0])
 
     def teach_wrong_chord_token(self, wrong_token):
         self.no_sequence_appended = True
 
     def teach_remnant_chord(self):
-        token = self.chord_position[0] if self.inter_chord_flags[0] else TOKEN_OFFSET.BAR.value
-        self.next_tokens_forced.append(token)
+        print(self.chord_token)
+        if self.inter_chord_flags[0]:
+            self.teach_chord_position()
+        else:
+            self.teach_bar()
 
     def teach_eos(self):
         token = TOKEN_OFFSET.EOS.value
-        self.next_tokens_forced.append(token)
+        self.next_tokens_forced.append([token, 0, 0, 0])
 
     def validate_teacher_forced_sequence(self, seq) -> None:
         def _count_num_chord(seq):
@@ -262,9 +275,8 @@ class InferenceTask:
         teacher = TeacherForceTask(self.input_data)
         first_loop = True
         for _ in range(self.inference_cfg.GENERATION.generation_length):
-            if seq[-1] == 1:
+            if seq[-1][0] == 1:
                 break
-
             if teacher.next_tokens_forced:
                 next_token = teacher.next_tokens_forced.pop(0)
                 seq.append(next_token)
@@ -290,18 +302,18 @@ class InferenceTask:
 
             # forcefully assign position 1/128 right after bar token
             if teacher.check_first_position(seq):
-                teacher.teach_first_position()
+                teacher.teach_chord_position()
                 continue
 
-            # in case there is one chord per bar
-            if teacher.check_one_chord_per_bar_case(seq):
-                teacher.teach_chord_token()
-                continue
+            # # in case there is one chord per bar
+            # if teacher.check_one_chord_per_bar_case(seq):
+            #     teacher.teach_chord_token()
+            #     continue
 
-            # in case the chord changes within a bar
-            if teacher.check_mul_chord_per_bar_case(seq):
-                teacher.teach_chord_token()
-                continue
+            # # in case the chord changes within a bar
+            # if teacher.check_mul_chord_per_bar_case(seq):
+            #     teacher.teach_chord_token()
+            #     continue
 
             # teacher forcing followed by token inference so that we can check if the wrong token was generated
             try:
@@ -313,17 +325,21 @@ class InferenceTask:
                 break
 
             # generated token skipped necessary position
-            if teacher.check_chord_position_passed(token):
+            if teacher.check_chord_position_passed(token[0]):
                 teacher.teach_chord_position()
+                continue
+            
+            if teacher.check_bar_generated(token[0]):
+                teacher.teach_bar()
                 continue
 
             # wrong chord token generated
-            if teacher.check_wrong_chord_token_generated(token):
+            if teacher.check_wrong_chord_token_generated(token[1]):
                 teacher.teach_wrong_chord_token(token)
                 continue
 
             # eos generated but we got more chords to write
-            if teacher.check_wrong_eos_generated(token):
+            if teacher.check_wrong_eos_generated(token[0]):
                 teacher.teach_remnant_chord()
                 continue
 
@@ -335,6 +351,9 @@ class InferenceTask:
             seq.append(token)
 
         try:
+            seq = [num for group in seq for num in group]
+            seq = seq[:-3]
+            seq = [0] + list(filter(lambda t: t != 0, seq))
             teacher.validate_teacher_forced_sequence(seq)
         except Exception as error_message:
             logger.error(error_message)
