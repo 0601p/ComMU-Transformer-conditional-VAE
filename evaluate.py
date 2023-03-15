@@ -234,7 +234,8 @@ def main(checkpoint_path, meta_data_path, eval_diversity=False):
         input_['temperature'] = 0.95
         input_['chord_progression'] = str('-'.join(eval(input_['chord_progressions'])[0]))
         input_.pop('chord_progressions')
-
+        
+        pipeline.preprocess_task.input_data = None
         encoded_meta = pipeline.preprocess_task.execute(input_)
         input_data = pipeline.preprocess_task.input_data
 
@@ -345,7 +346,7 @@ def main(checkpoint_path, meta_data_path, eval_diversity=False):
                 num_notes += len(notes)
 
             TP, TN, _ = in_harmoney_rate(notes, chord_progression=eval(dict(meta)['chord_progressions'])[0],
-                                         key_num=encoded_meta[1]-602)
+                                         key_num=encoded_meta[1]-601)
             PH += TP
             NH += TN
             same_meta_output.append(notes)

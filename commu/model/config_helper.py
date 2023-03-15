@@ -8,8 +8,8 @@ def model(cfg):
     cfg.MODEL.num_heads = 10
     cfg.MODEL.units = 500  # 500
     cfg.MODEL.inner_size = 1000  # 1000
-    cfg.MODEL.dropout = 0.1
-    cfg.MODEL.attention_dropout = 0.1
+    cfg.MODEL.dropout = 0.3
+    cfg.MODEL.attention_dropout = 0.3
     cfg.MODEL.clamp_len = -1
     cfg.MODEL.same_length = False
     return cfg
@@ -23,7 +23,7 @@ def train(cfg):
     cfg.TRAIN.tgt_length = 64  # 128
     cfg.TRAIN.mem_length = 1024
     cfg.TRAIN.seed = 1111
-    cfg.TRAIN.lr = 0.002
+    cfg.TRAIN.lr = 0.004
     cfg.TRAIN.lr_min = 0.00005
     cfg.TRAIN.warmup_step = 100
     cfg.TRAIN.clip = 1.0
@@ -64,7 +64,7 @@ def get_default_cfg_inference():
 
     # # Model related parameters
     cfg.MODEL = CN()
-    cfg.MODEL.memory_length = 2048  # 4146
+    cfg.MODEL.memory_length = 4096  # 4146
     cfg.MODEL.device = "gpu"
     # Sampling related parameters
     cfg.SAMPLING = CN()

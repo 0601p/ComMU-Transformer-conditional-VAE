@@ -142,7 +142,9 @@ class TeacherForceTask:
         self.no_sequence_appended = True
 
     def teach_remnant_chord(self):
-        print(self.chord_token)
+        if len(self.inter_chord_flags) == 0:
+            self.teach_eos()
+            return
         if self.inter_chord_flags[0]:
             self.teach_chord_position()
         else:
@@ -326,26 +328,26 @@ class InferenceTask:
 
             # generated token skipped necessary position
             if teacher.check_chord_position_passed(token[0]):
-                teacher.teach_chord_position()
+                teacher.teach_remnant_chord()
                 continue
-            
+
+            # bar token generated but num measures exceed
+            if teacher.check_wrong_bar_token_generated(token[0]):
+                teacher.teach_eos()
+                continue
+
             if teacher.check_bar_generated(token[0]):
-                teacher.teach_bar()
+                teacher.teach_remnant_chord()
                 continue
 
             # wrong chord token generated
             if teacher.check_wrong_chord_token_generated(token[1]):
-                teacher.teach_wrong_chord_token(token)
+                teacher.teach_remnant_chord()
                 continue
 
             # eos generated but we got more chords to write
             if teacher.check_wrong_eos_generated(token[0]):
                 teacher.teach_remnant_chord()
-                continue
-
-            # bar token generated but num measures exceed
-            if teacher.check_wrong_bar_token_generated(token):
-                teacher.teach_eos()
                 continue
 
             seq.append(token)
