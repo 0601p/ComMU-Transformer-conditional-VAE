@@ -48,9 +48,22 @@ python3 generate.py \
 --chord_progression Am-Am-Am-Am-Am-Am-Am-Am-G-G-G-G-G-G-G-G-F-F-F-F-F-F-F-F-E-E-E-E-E-E-E-E-Am-Am-Am-Am-Am-Am-Am-Am-G-G-G-G-G-G-G-G-F-F-F-F-F-F-F-F-E-E-E-E-E-E-E-E \
 --num_generate 3
     ```
+<<<<<<< HEAD
     
 ## Checkpoint File - this will be added
 [Download](github.0601p.io)
+=======
+
+## Evaluating
+- getting controllability and diversity of created midi
+
+```
+python ./evaluate.py --checkpoint_dir checkpoint_best.pt --val_meta_dir val_meta.csv --eval_diversity True
+``` 
+
+## Checkpoint File
+[Download](https://drive.google.com/file/d/1y0wl9JO8od3pLOMSxN8NwLy1PCJCyTGL/view?usp=share_link)
+>>>>>>> 0fc8651 (add evaluation code)
 
 ## License
 ComMU dataset is released under Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0). It is provided primarily for research purposes and is prohibited to be used for commercial purposes.
