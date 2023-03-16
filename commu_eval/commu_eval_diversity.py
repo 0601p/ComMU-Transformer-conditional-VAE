@@ -70,7 +70,7 @@ def get_diversity(notes):
 # LOAD DATA
 # real_npy = np.load("/media/data/dioai/preprocessed_data/paper_data/no_aug/output_npy/target_val.npy", allow_pickle=True)
 # gen_npy = np.load("/media/data/dioai/preprocessed_data/paper_data/no_aug/exp_decoded_obj/200_95/00/generated.npy", allow_pickle=True)
-n_gen = np.load("/media/data/dioai/preprocessed_data/paper_data/exp/tgan/n_generated.npy", allow_pickle=True)
+n_gen = np.load(".out_val/val.npy", allow_pickle=True)
 
 ################### dummy data for debugging ###################
 # n_gen_raw = np.zeros([1, 10, 1024])

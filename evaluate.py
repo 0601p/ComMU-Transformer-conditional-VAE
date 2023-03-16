@@ -373,7 +373,7 @@ def main(checkpoint_path, meta_data_path, eval_diversity=False):
             print("DIV", Diversity / (idx + 1), flush = True)
 
     Diversity /= len(metas)
-    CP /= num_notes
+    CP /= 10  * len(metas)
     CV /= num_notes
     CH = PH / (PH + NH)
 
