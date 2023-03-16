@@ -334,15 +334,17 @@ def main(checkpoint_path, meta_data_path, eval_diversity=False):
                         )
                         st = flags[position]
                         chords.append([st, value])
-
-            if idx2 == 0:  # CP, CV
+                
+                # CP, CV for each note sequences
+                pitchsum = 0
                 for note in notes:
-                    if isPitchCorrect(note.pitch, encoded_meta):
-                        CP += 1
-
+                    pitchsum += note.pitch
                     if isVelocityCorrect(note.velocity, encoded_meta):
                         CV += 1
-
+                
+                avgpitch = int(pitchsum / len(notes))
+                if isPitchCorrect(avgpitch, encoded_meta):
+                    CP += 1
                 num_notes += len(notes)
 
             TP, TN, _ = in_harmoney_rate(notes, chord_progression=eval(dict(meta)['chord_progressions'])[0],
@@ -354,18 +356,21 @@ def main(checkpoint_path, meta_data_path, eval_diversity=False):
         # Diversity
         if eval_diversity:
             tmp_Diversity = 0
+            num_nan = 0
             for i in range(len(sequences)):
                 for j in range(i+1, len(sequences)):
+                    if np.isnan(math.sqrt(((1-calChromaSim(sequences[i], sequences[j]))**2 + (1-calGroovingSim(sequences[i], sequences[j]))**2) / 2)):
+                        num_nan += 1
+                        continue
                     tmp_Diversity += math.sqrt(((1-calChromaSim(sequences[i], sequences[j]))**2
                                            + (1-calGroovingSim(sequences[i], sequences[j]))**2)
                                            / 2)
-            tmp_Diversity /= len(sequences) * (len(sequences) - 1) / 2
+            tmp_Diversity /= len(sequences) * (len(sequences) - 1) / 2 - num_nan
             Diversity += tmp_Diversity
 
-        if idx % 10 == 0:
-            print(idx/len(metas), CP / num_notes, CV / num_notes, PH / (PH+NH))
-            if eval_diversity:
-                print(Diversity / (idx + 1))
+        print(idx, '/', len(metas), "\tCP", CP / 10 / (idx + 1), "\tCV", CV / num_notes, "\tCH", PH / (PH+NH), flush = True)
+        if eval_diversity:
+            print("DIV", Diversity / (idx + 1), flush = True)
 
     Diversity /= len(metas)
     CP /= num_notes
