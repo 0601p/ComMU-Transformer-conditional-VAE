@@ -34,6 +34,13 @@ def main(checkpoint_path, meta_data_path, eval_diversity=False, out_dir = './out
     num_notes = 0
     for idx, meta in enumerate(metas.iloc):
         input_ = dict(meta)
+        if input_['num_measures'] == 5:
+            input_['num_measures'] = 4
+        if input_['num_measures'] == 9:
+            input_['num_measures'] = 8
+        if input_['num_measures'] == 17:
+            input_['num_measures'] = 16
+
         input_['rhythm'] = 'standard'
         input_['output_dir'] = out_dir + '/' + str(idx)
         input_['num_generate'] = 10 if eval_diversity else 1
@@ -62,16 +69,14 @@ def main(checkpoint_path, meta_data_path, eval_diversity=False, out_dir = './out
         print(idx, '/', len(metas), flush=True)
     val_npy = np.array(val_npy_list)
     np.save(out_dir + '/val.npy', val_npy)
-
-
-
+        
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
 
-    arg_parser.add_argument("--checkpoint_dir", type=str, required=True)
-    arg_parser.add_argument("--val_meta_dir", type=str, required=True)
-    arg_parser.add_argument("--eval_diversity", type=bool, required=False)
-    arg_parser.add_argument("--out_dir", type=str, required=True)
+    arg_parser.add_argument("--checkpoint_dir", type=str)
+    arg_parser.add_argument("--val_meta_dir", type=str)
+    arg_parser.add_argument("--eval_diversity", type=bool)
+    arg_parser.add_argument("--out_dir", type=str)
 
     args = arg_parser.parse_args()
 

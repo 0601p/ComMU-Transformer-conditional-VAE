@@ -1,7 +1,9 @@
 import re
-
+import os
+import pandas as pd
 import numpy as np
 import functools
+import miditoolkit
 
 from commu.preprocessor.encoder.event_tokens import base_event, TOKEN_OFFSET
 
@@ -151,7 +153,7 @@ def in_harmony_rate(midifile, chord_progression, key_num):
                     note.start < time and note.end > next_time): # --|--note--|--
                 if note.pitch % 12 in key_scale:
                     pn[note_idx] += 0
-                elif note.pitch % 12 in chord_scale_map[chord_progression[idx]]:
+                elif note.pitch % 12 in chord_scale_map['Chord_' + chord_progression[idx].lower()]:
                     pn[note_idx] += 0
                 else:
                     pn[note_idx] += 1
@@ -164,3 +166,66 @@ def in_harmony_rate(midifile, chord_progression, key_num):
             p += 1
     pn = p / (p + n)
     return p, n, pn
+
+
+meta_data_path = "/workspace/ComMU-Transformer-conditional-VAE/dataset/val_meta.csv"
+metas = pd.read_csv(meta_data_path)
+min_vel_arr = metas["min_velocity"]
+max_vel_arr = metas["max_velocity"]
+chord_arr = metas["chord_progressions"]
+
+n_gen = np.load("/workspace/ComMU-Transformer-conditional-VAE/out_val/val.npy", allow_pickle=True)
+np_gen = np.zeros((763, 10, 1012))
+i = 0
+for ii in n_gen:
+    j = 0
+    for jj in ii:
+        k = 0
+        for kk in jj:
+            if k >= 1012:
+                break
+            np_gen[i, j, k] = kk
+            k += 1
+        j += 1
+    i += 1
+n_gen = np_gen
+n_gen = n_gen[:, 0, :12]
+
+dir = "/workspace/ComMU-Transformer-conditional-VAE/out_val/"
+
+CP = 0
+CV = 0
+CH = 0
+phsum = 0
+nhsum = 0
+pvsum = 0
+nvsum = 0
+
+for i in range(763):
+    cur_dir = dir + str(i)
+    for (root, directories, files) in os.walk(cur_dir):
+        if(len(files) == 10):
+            cur_file = root + '/' + files[0]
+            midifile = miditoolkit.midi.parser.MidiFile(cur_file)
+
+            pitch_range = int(n_gen[i, 4]) - 631
+            min_vel = min_vel_arr[i]
+            max_vel = max_vel_arr[i]
+            chord_progression = eval(chord_arr[i])[0]
+            key_num = int(n_gen[i, 2]) - 602
+
+            P = in_pitch_range_rate(midifile, pitch_range)
+            CP += P
+            pv, nv, V = in_velocity_range_rate(midifile, min_vel, max_vel)
+            pvsum += pv
+            nvsum += nv
+
+            CV += V
+            ph, nh, pnh = in_harmony_rate(midifile, chord_progression, key_num)
+            phsum += ph
+            nhsum += nh
+
+            CH += pnh
+
+print("CP :", CP / 763, "CV :", pvsum / (pvsum + nvsum), "CH :", phsum / (phsum + nhsum))
+print("CP :", CP / 763, "CV :", CV / 763, "CH :", CH / 763)

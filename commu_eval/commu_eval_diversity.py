@@ -57,10 +57,13 @@ def get_diversity(notes):
         note_combination_lst = list(combinations(notes[i], 2))
         local_dist = []
         for combi_tuple in note_combination_lst:
-            sim_chr = get_dist(combi_tuple[0], combi_tuple[1], attr='chroma')
-            sim_grv = get_dist(combi_tuple[0], combi_tuple[1], attr='grv')
-            numerator = np.square(sim_chr) + np.square(sim_grv)
-            local_dist.append(math.sqrt(numerator) / 2)
+            try:
+                sim_chr = get_dist(combi_tuple[0], combi_tuple[1], attr='chroma')
+                sim_grv = get_dist(combi_tuple[0], combi_tuple[1], attr='grv')
+                numerator = np.square(sim_chr) + np.square(sim_grv)
+                local_dist.append(math.sqrt(numerator) / 2)
+            except:
+                local_dist.append(float('nan'))
         # mean of n note sequences from the same metadata
         dist.append(np.nanmean(np.array(local_dist)))
     return np.nanmean(np.array(dist)) # mean over metadata
@@ -70,8 +73,21 @@ def get_diversity(notes):
 # LOAD DATA
 # real_npy = np.load("/media/data/dioai/preprocessed_data/paper_data/no_aug/output_npy/target_val.npy", allow_pickle=True)
 # gen_npy = np.load("/media/data/dioai/preprocessed_data/paper_data/no_aug/exp_decoded_obj/200_95/00/generated.npy", allow_pickle=True)
-n_gen = np.load(".out_val/val.npy", allow_pickle=True)
-
+n_gen = np.load("/workspace/ComMU-Transformer-conditional-VAE/out_val/val.npy", allow_pickle=True)
+np_gen = np.zeros((763, 10, 1012))
+i = 0
+for ii in n_gen:
+    j = 0
+    for jj in ii:
+        k = 0
+        for kk in jj:
+            if k >= 1012:
+                break
+            np_gen[i, j, k] = kk
+            k += 1
+        j += 1
+    i += 1
+n_gen = np_gen
 ################### dummy data for debugging ###################
 # n_gen_raw = np.zeros([1, 10, 1024])
 # np.random.seed(1456)

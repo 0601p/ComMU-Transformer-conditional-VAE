@@ -1,14 +1,4 @@
-# ComMU: Dataset for Combinatorial Music Generation
-
-![](https://velog.velcdn.com/images/crosstar1228/post/0d2ed81f-06df-46fe-bfcb-8e5729eab6dc/image.png)
-
-This is the repository of ComMU : Dataset for Combinational Music Generation. It is composed of midi dataset, and codes involving training & generation utilizing the autoregressive music generation model. The dataset contains 11,144 MIDI samples written and created by professional composers.
-They consist of short note sequences(4,8,16 bar), and are organized into 12 different metadata. they are as follows: BPM, Genre, Key, Track-instrument, Track-role, Time signature, Pitch range, Number of Measures, Chord progression, Min Velocity, Max Velocity, Rhythm.
-and additional document and dataset are showed below.
-- [Paper](https://openreview.net/pdf?id=Jq3uTzLg9se) (NeurIPS 2022)
-- [Demo Page](https://pozalabs.github.io/ComMU/)
-- [Dataset](https://github.com/POZAlabs/ComMU-code/tree/master/dataset)
-
+# Group Encoding for ComMU: Dataset for Combinatorial Music Generation [from](https://github.com/POZAlabs/ComMU-code)
 
 ## Getting Started
 - Note : This Project requires python version `3.8.12`. Set the virtual environment if needed.
@@ -25,7 +15,7 @@ cd dataset && ./download.sh && cd ..
 
 ## Training
 ```
-python3 -m torch.distributed.launch --nproc_per_node=2 ./train_grouped.py --data_dir ./dataset/output_npy --work_dir ./workdir
+python3 -m torch.distributed.launch --nproc_per_node=4 ./train_grouped.py --data_dir ./dataset/output_npy --work_dir ./workdir
 ```
 
 ## Generating
@@ -48,16 +38,9 @@ python3 generate.py \
 --chord_progression Am-Am-Am-Am-Am-Am-Am-Am-G-G-G-G-G-G-G-G-F-F-F-F-F-F-F-F-E-E-E-E-E-E-E-E-Am-Am-Am-Am-Am-Am-Am-Am-G-G-G-G-G-G-G-G-F-F-F-F-F-F-F-F-E-E-E-E-E-E-E-E \
 --num_generate 3
     ```
-    
-## Checkpoint File
+
+## Checkpoint File - this is our model's checkpoint!
 [Download](https://drive.google.com/file/d/1pqyD35PSbslGCkQK5Tbqg1swcIksQJRD/view?usp=sharing)
-
-## Evaluating
-- getting controllability and diversity of created midi
-
-```
-python ./evaluate.py --checkpoint_dir checkpoints/checkpoint_best.pt --val_meta_dir dataset/val_meta.csv --eval_diversity True
-``` 
 
 ## License
 ComMU dataset is released under Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0). It is provided primarily for research purposes and is prohibited to be used for commercial purposes.
